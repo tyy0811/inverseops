@@ -51,6 +51,11 @@ class Trainer:
         log_every_n_steps: int = 100,
         wandb_enabled: bool = False,
         config: dict | None = None,
+        start_epoch: int = 0,
+        best_val_psnr: float = float("-inf"),
+        best_epoch: int = 0,
+        epochs_without_improvement: int = 0,
+        global_step: int = 0,
     ) -> None:
         self.model = model
         self.train_loader = train_loader
@@ -74,11 +79,12 @@ class Trainer:
         self.checkpoint_dir = self.output_dir / "checkpoints"
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        # Training state
-        self.best_val_psnr = float("-inf")
-        self.best_epoch = 0
-        self.epochs_without_improvement = 0
-        self.global_step = 0
+        # Training state (restored from checkpoint on resume)
+        self.start_epoch = start_epoch
+        self.best_val_psnr = best_val_psnr
+        self.best_epoch = best_epoch
+        self.epochs_without_improvement = epochs_without_improvement
+        self.global_step = global_step
 
     def train(self) -> dict:
         """Run training loop.
@@ -89,7 +95,7 @@ class Trainer:
         start_time = time.time()
         stopped_early = False
 
-        for epoch in range(1, self.max_epochs + 1):
+        for epoch in range(self.start_epoch + 1, self.max_epochs + 1):
             # Training
             train_loss = self._train_epoch(epoch)
 
@@ -120,16 +126,22 @@ class Trainer:
                 f"lr: {lr:.2e}{best_marker}"
             )
 
-            # Save checkpoints
-            self._save_checkpoint(epoch, val_psnr, is_latest=True)
-
+            # Update best tracking before saving so latest.pt has fresh state
             if is_best:
                 self.best_val_psnr = val_psnr
                 self.best_epoch = epoch
                 self.epochs_without_improvement = 0
+                log_metrics(
+                    step=epoch,
+                    metrics={"best_val_psnr": self.best_val_psnr},
+                    enabled=self.wandb_enabled,
+                )
                 self._save_checkpoint(epoch, val_psnr, is_latest=False)
             else:
                 self.epochs_without_improvement += 1
+
+            # Save latest checkpoint (state already updated)
+            self._save_checkpoint(epoch, val_psnr, is_latest=True)
 
             # Step scheduler
             if self.scheduler is not None:
@@ -266,10 +278,11 @@ class Trainer:
             Mean PSNR across batch.
         """
         pred = pred.clamp(0, 1)
-        mse = torch.nn.functional.mse_loss(pred, target)
-        if mse == 0:
-            return float("inf")
-        return (10 * torch.log10(1.0 / mse)).item()
+        target = target.clamp(0, 1)
+        mse_per_image = torch.mean((pred - target) ** 2, dim=(1, 2, 3))
+        eps = 1e-12
+        psnr_per_image = 10.0 * torch.log10(1.0 / torch.clamp(mse_per_image, min=eps))
+        return psnr_per_image.mean().item()
 
     def _save_checkpoint(self, epoch: int, val_psnr: float, is_latest: bool) -> None:
         """Save checkpoint.
@@ -284,6 +297,9 @@ class Trainer:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "epoch": epoch,
             "best_val_psnr": self.best_val_psnr,
+            "best_epoch": self.best_epoch,
+            "epochs_without_improvement": self.epochs_without_improvement,
+            "global_step": self.global_step,
             "config": self.config,
         }
 

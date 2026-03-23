@@ -1,0 +1,18 @@
+# Data and artifacts
+data/
+artifacts/
+outputs/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
