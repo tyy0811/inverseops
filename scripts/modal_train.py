@@ -234,6 +234,87 @@ def evaluate():
 
 
 # ---------------------------------------------------------------------------
+# Generate example images: clean → noisy → denoised
+# ---------------------------------------------------------------------------
+
+@app.function(
+    image=train_image,
+    volumes={"/vol": vol},
+    timeout=1800,
+)
+def generate_examples(sigma: int = 50):
+    """Generate example denoising images for README."""
+    import sys
+    sys.path.insert(0, "/app")
+
+    import numpy as np
+    import torch
+    from PIL import Image
+
+    from inverseops.data.microscopy import MicroscopyDataset
+
+    os.environ["INVERSEOPS_CACHE"] = "/cache/inverseops"
+
+    # Load a test image
+    ds = MicroscopyDataset(root_dir=DATA_DIR, split="test", seed=42)
+    ds.prepare()
+    clean_pil = ds.load_image(0)
+    print(f"Loaded test image: {ds.image_path(0)} ({clean_pil.size})")
+
+    # Crop to a nice region (256x256)
+    w, h = clean_pil.size
+    left = (w - 256) // 2
+    top = (h - 256) // 2
+    clean_pil = clean_pil.crop((left, top, left + 256, top + 256))
+
+    # Add noise
+    clean_arr = np.array(clean_pil, dtype=np.float32) / 255.0
+    rng = np.random.default_rng(42)
+    noise = rng.normal(0, sigma / 255.0, clean_arr.shape).astype(np.float32)
+    noisy_arr = np.clip(clean_arr + noise, 0, 1)
+
+    # Denoise with fine-tuned model
+    from inverseops.models.swinir import get_trainable_swinir
+    checkpoint = "/vol/outputs/training/checkpoints/best.pt"
+    model = get_trainable_swinir(noise_level=25, pretrained=True, device="cpu")
+    ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    noisy_pil = Image.fromarray((noisy_arr * 255).astype(np.uint8), mode="L")
+
+    # Run inference
+    with torch.no_grad():
+        input_t = torch.from_numpy(noisy_arr).unsqueeze(0).unsqueeze(0)  # [1,1,H,W]
+        output_t = model(input_t)
+        denoised_arr_t = output_t.squeeze().clamp(0, 1).numpy()
+
+    denoised_pil = Image.fromarray((denoised_arr_t * 255).astype(np.uint8), mode="L")
+
+    # Save
+    out_dir = Path("/vol/examples")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    clean_pil.save(out_dir / "clean.png")
+    noisy_pil.save(out_dir / f"noisy_sigma{sigma}.png")
+    denoised_pil.save(out_dir / f"denoised_sigma{sigma}.png")
+
+    # Compute PSNR
+    denoised_arr = denoised_arr_t
+    mse = np.mean((clean_arr - denoised_arr) ** 2)
+    psnr = 10 * np.log10(1.0 / max(mse, 1e-12))
+
+    mse_noisy = np.mean((clean_arr - noisy_arr) ** 2)
+    psnr_noisy = 10 * np.log10(1.0 / max(mse_noisy, 1e-12))
+
+    print(f"Noisy PSNR:    {psnr_noisy:.2f} dB")
+    print(f"Denoised PSNR: {psnr:.2f} dB")
+    print(f"Saved to {out_dir}")
+
+    vol.commit()
+
+
+# ---------------------------------------------------------------------------
 # Local entrypoint
 # ---------------------------------------------------------------------------
 
