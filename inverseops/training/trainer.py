@@ -73,7 +73,7 @@ class Trainer:
 
         # AMP setup - only use on CUDA
         self.use_amp = use_amp and device != "cpu" and torch.cuda.is_available()
-        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None
+        self.scaler = torch.amp.GradScaler("cuda") if self.use_amp else None  # type: ignore[attr-defined]
 
         # Create output directories
         self.checkpoint_dir = self.output_dir / "checkpoints"
@@ -211,6 +211,7 @@ class Trainer:
                     outputs = self.model(inputs)
                     loss = self.loss_fn(outputs, targets)
 
+                assert self.scaler is not None
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()

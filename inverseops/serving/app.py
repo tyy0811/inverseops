@@ -130,7 +130,8 @@ def create_app(models=None) -> FastAPI:
             loaded = {}
             for sigma in SUPPORTED_SIGMAS:
                 m = SwinIRBaseline(
-                    noise_level=sigma, device="cpu"
+                    noise_level=sigma,  # type: ignore[arg-type]
+                    device="cpu",
                 )
                 m.load()
                 loaded[sigma] = m

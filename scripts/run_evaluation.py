@@ -30,7 +30,7 @@ import numpy as np
 try:
     import wandb
 except ImportError:
-    wandb = None
+    wandb = None  # type: ignore[assignment]
 from PIL import Image
 
 from inverseops.data.degradations import add_gaussian_noise
@@ -107,7 +107,7 @@ def generate_smoke_fixtures(
                     if ((y // block) + (x // block)) % 2 == 0:
                         arr[y : y + block, x : x + block] = 255
         elif pattern == "circles":
-            y, x = np.ogrid[:size, :size]
+            y, x = np.ogrid[:size, :size]  # type: ignore[assignment]
             center = size // 2
             dist = np.sqrt((x - center) ** 2 + (y - center) ** 2)
             arr = ((np.sin(dist / 5) + 1) * 127.5).astype(np.uint8)
@@ -147,7 +147,7 @@ def discover_images(
     root: Path, extensions: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 ) -> list[Path]:
     """Recursively discover image files under root."""
-    images = []
+    images: list[Path] = []
     for ext in extensions:
         images.extend(root.rglob(f"*{ext}"))
         images.extend(root.rglob(f"*{ext.upper()}"))
@@ -1170,7 +1170,7 @@ def main() -> int:
     if args.single_sigma:
         sigmas = (args.single_sigma,)
     else:
-        sigmas = SUPPORTED_SIGMAS  # (15, 25, 50)
+        sigmas = SUPPORTED_SIGMAS  # type: ignore[assignment]
 
     # Set default summary CSV path
     if args.summary_csv is None:
@@ -1458,7 +1458,7 @@ def main() -> int:
     print(f"  Evidence tier: {evidence_tier}")
 
     if args.model_mode == "finetuned":
-        spec_detected = specialization_result.get("specialization_detected")
+        spec_detected = specialization_result.get("specialization_detected")  # type: ignore[union-attr]
         print(f"  Specialization detected: {spec_detected}")
         print("  Artifact: specialization_summary.json")
     else:

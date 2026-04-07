@@ -130,11 +130,11 @@ def build_dataloaders(
     # Apply sample limits
     limit_train = data_cfg.get("limit_train_samples")
     if limit_train is not None and limit_train < len(train_dataset):
-        train_dataset = Subset(train_dataset, list(range(limit_train)))
+        train_dataset = Subset(train_dataset, list(range(limit_train)))  # type: ignore[assignment]
 
     limit_val = data_cfg.get("limit_val_samples")
     if limit_val is not None and limit_val < len(val_dataset):
-        val_dataset = Subset(val_dataset, list(range(limit_val)))
+        val_dataset = Subset(val_dataset, list(range(limit_val)))  # type: ignore[assignment]
 
     # Create DataLoaders
     train_loader = DataLoader(
@@ -429,7 +429,7 @@ def main() -> int:
         import wandb
         for k, v in saved_summary.items():
             if isinstance(v, (int, float, bool, str)) or v is None:
-                wandb.run.summary[k] = v
+                wandb.run.summary[k] = v  # type: ignore[union-attr]
 
     # Finish W&B
     finish_run(enabled=wandb_enabled)
