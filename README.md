@@ -1,10 +1,14 @@
 # InverseOps
 
-Microscopy image denoising via SwinIR fine-tuning.
+Fine-tuning [SwinIR](https://github.com/JingyunLiang/SwinIR) for microscopy image denoising, evaluated on the [Fluorescence Microscopy Denoising (FMD)](https://zenodo.org/records/3713545) dataset.
+
+## Objective
+
+Pretrained image restoration models are trained on natural images and underperform on microscopy data due to domain gap. This project fine-tunes SwinIR on microscopy images to close that gap, with a full pipeline for data loading, training (local and cloud GPU), evaluation, and comparison against the pretrained baseline.
 
 ## Results
 
-Fine-tuned SwinIR on FMD microscopy data (A100 GPU, 16 epochs with early stopping).
+Fine-tuned SwinIR on FMD Confocal FISH data (A100 GPU, 16 epochs with early stopping, cosine LR schedule).
 
 ```mermaid
 ---
@@ -34,6 +38,10 @@ Domain-specific fine-tuning dramatically improves denoising, especially at high 
 | Clean | Noisy (16.09 dB) | Denoised (27.36 dB) |
 |:-----:|:-----------------:|:-------------------:|
 | ![clean](assets/clean.png) | ![noisy](assets/noisy_sigma50.png) | ![denoised](assets/denoised_sigma50.png) |
+
+## Dataset
+
+[FMD (Fluorescence Microscopy Denoising)](https://zenodo.org/records/3713545) — a benchmark dataset of fluorescence microscopy images across multiple modalities (Confocal, Two-Photon, Wide-Field). This project uses the Confocal FISH subset with ground truth images averaged from 50 captures. Synthetic Gaussian noise at sigma 15, 25, 50 is added to create clean/noisy pairs for training and evaluation.
 
 ## Quick Start
 
@@ -94,7 +102,7 @@ python scripts/run_evaluation.py \
 inverseops/
     data/           # Dataset loaders, transforms, degradations
     models/         # SwinIR architecture and wrappers
-    training/       # Trainer with early stopping, losses
+    training/       # Trainer with early stopping, AMP, losses
     evaluation/     # PSNR/SSIM metrics
     serving/        # REST API schemas (planned)
     tracking/       # W&B integration
@@ -106,3 +114,9 @@ configs/
     denoise_swinir.yaml # Training configuration
 tests/                  # Unit and integration tests
 ```
+
+## References
+
+- **SwinIR**: Liang et al., [SwinIR: Image Restoration Using Swin Transformer](https://arxiv.org/abs/2108.10257), ICCVW 2021
+- **FMD**: Zhang et al., [A Poisson-Gaussian Denoising Dataset with Real Fluorescence Microscopy Images](https://arxiv.org/abs/1811.12751), CVPR 2019
+- **Modal**: Cloud GPU platform used for training — [modal.com](https://modal.com)
