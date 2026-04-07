@@ -1,0 +1,24 @@
+{
+  "mode": "full",
+  "decision_gate_valid": true,
+  "dataset_locked": true,
+  "microscopy_image_count": 2,
+  "natural_image_count": 3,
+  "evidence_tier": "pilot",
+  "sigma_list": [
+    15,
+    25,
+    50
+  ],
+  "gap_threshold_db": 1.0,
+  "per_sigma_gap_db": {
+    "15": -6.86,
+    "25": -7.42,
+    "50": -7.97
+  },
+  "overall_micro_psnr": 35.46,
+  "overall_natural_psnr": 28.05,
+  "overall_gap_db": -7.42,
+  "recommendation": "Microscopy performance is similar to natural images. Consider using a more challenging microscopy subset (e.g., EM).",
+  "notes": "Day 3 uses synthetic Gaussian noise on clean reference images."
+}

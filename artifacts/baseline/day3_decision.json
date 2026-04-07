@@ -1,0 +1,24 @@
+{
+  "mode": "full",
+  "decision_gate_valid": true,
+  "dataset_locked": true,
+  "microscopy_image_count": 1,
+  "natural_image_count": 1,
+  "evidence_tier": "pilot",
+  "sigma_list": [
+    15,
+    25,
+    50
+  ],
+  "gap_threshold_db": 1.0,
+  "per_sigma_gap_db": {
+    "15": -3.84,
+    "25": -0.51,
+    "50": 2.54
+  },
+  "overall_micro_psnr": 30.3,
+  "overall_natural_psnr": 29.7,
+  "overall_gap_db": -0.6,
+  "recommendation": "Microscopy performance is similar to natural images. Consider using a more challenging microscopy subset (e.g., EM).",
+  "notes": "This is a protocol-complete pilot benchmark on a minimal subset; evidence strength is limited by sample count."
+}

@@ -1,0 +1,33 @@
+{
+  "model_mode": "finetuned",
+  "mode": "full",
+  "evidence_tier": "pilot",
+  "microscopy_image_count": 2,
+  "natural_image_count": 10,
+  "sigma_list": [
+    50
+  ],
+  "microscopy_mean_psnr": 32.99,
+  "natural_mean_psnr": 24.6819,
+  "microscopy_mean_ssim": 0.8933,
+  "natural_mean_ssim": 0.6808,
+  "overall_natural_minus_micro_psnr": -8.3081,
+  "overall_natural_minus_micro_ssim": -0.2125,
+  "specialization_detected": true,
+  "microscopy_improved_vs_pretrained": true,
+  "natural_regressed_vs_pretrained": true,
+  "per_sigma": {
+    "50": {
+      "microscopy_psnr": 32.99,
+      "natural_psnr": 24.6819,
+      "natural_minus_micro_psnr": -8.3081,
+      "microscopy_delta_psnr_vs_pretrained": 9.5162,
+      "microscopy_delta_ssim_vs_pretrained": 0.4553,
+      "natural_delta_psnr_vs_pretrained": -1.3349,
+      "natural_delta_ssim_vs_pretrained": -0.0958
+    }
+  },
+  "recommendation": "Fine-tuning produced domain specialization: improved microscopy denoising with reduced out-of-domain natural-image performance.",
+  "notes": "Post-fine-tuning tradeoff summary. This is NOT a Day 3 dataset-screening decision. Use compare_summary.csv for full pretrained-vs-finetuned deltas.",
+  "compare_summary_path": "artifacts/compare_finetuned/compare_summary.csv"
+}

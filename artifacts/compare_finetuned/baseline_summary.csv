@@ -1,0 +1,3 @@
+sigma,noise_type,domain,dataset_name,is_real_data,count,psnr_mean,psnr_std,ssim_mean,ssim_std,seed,model_name,model_checkpoint,mode,decision_gate_valid,evidence_tier
+50,synthetic_gaussian,microscopy,fmd,True,2,32.9900,3.5349,0.8933,0.0412,42,swinir,best.pt,full,True,pilot
+50,synthetic_gaussian,natural,natural,True,10,24.6819,0.6379,0.6808,0.0483,42,swinir,best.pt,full,True,pilot

@@ -1,0 +1,30 @@
+{
+  "best_val_psnr": 30.642059538099502,
+  "best_epoch": 6,
+  "stopped_early": true,
+  "epochs_completed": 16,
+  "best_checkpoint_path": "/vol/outputs/training/checkpoints/best.pt",
+  "total_training_time_seconds": 3303.0659687519073,
+  "run_name": "swinir_fmd_denoise_sigma15_25_50_v1",
+  "config_path": "/tmp/modal_config.yaml",
+  "resolved_output_dir": "/vol/outputs/training",
+  "latest_checkpoint_path": "/vol/outputs/training/checkpoints/latest.pt",
+  "train_time_seconds": 3303.07,
+  "train_time_minutes": 55.05,
+  "device": "cuda",
+  "amp_enabled": false,
+  "seed": 42,
+  "batch_size": 4,
+  "train_sigmas": [
+    15,
+    25,
+    50
+  ],
+  "learning_rate": 0.0002,
+  "weight_decay": 0.0,
+  "scheduler_name": "cosine",
+  "wandb_enabled": false,
+  "wandb_project": "inverseops-training",
+  "wandb_run_name": "swinir_fmd_denoise_sigma15_25_50_v1",
+  "max_gpu_memory_mb": 24120.4
+}

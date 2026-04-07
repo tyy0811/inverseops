@@ -1,0 +1,53 @@
+{
+  "model_mode": "finetuned",
+  "mode": "partial",
+  "evidence_tier": "pilot",
+  "microscopy_image_count": 2,
+  "natural_image_count": 0,
+  "sigma_list": [
+    15,
+    25,
+    50
+  ],
+  "microscopy_mean_psnr": 35.8263,
+  "natural_mean_psnr": null,
+  "microscopy_mean_ssim": 0.9171,
+  "natural_mean_ssim": null,
+  "overall_natural_minus_micro_psnr": null,
+  "overall_natural_minus_micro_ssim": null,
+  "specialization_detected": null,
+  "microscopy_improved_vs_pretrained": null,
+  "natural_regressed_vs_pretrained": null,
+  "per_sigma": {
+    "15": {
+      "microscopy_psnr": 37.7313,
+      "natural_psnr": null,
+      "natural_minus_micro_psnr": null,
+      "microscopy_delta_psnr_vs_pretrained": 1.0814,
+      "microscopy_delta_ssim_vs_pretrained": 0.0657,
+      "natural_delta_psnr_vs_pretrained": null,
+      "natural_delta_ssim_vs_pretrained": null
+    },
+    "25": {
+      "microscopy_psnr": 36.2363,
+      "natural_psnr": null,
+      "natural_minus_micro_psnr": null,
+      "microscopy_delta_psnr_vs_pretrained": 5.4489,
+      "microscopy_delta_ssim_vs_pretrained": 0.2279,
+      "natural_delta_psnr_vs_pretrained": null,
+      "natural_delta_ssim_vs_pretrained": null
+    },
+    "50": {
+      "microscopy_psnr": 33.5114,
+      "natural_psnr": null,
+      "natural_minus_micro_psnr": null,
+      "microscopy_delta_psnr_vs_pretrained": 10.0376,
+      "microscopy_delta_ssim_vs_pretrained": 0.4566,
+      "natural_delta_psnr_vs_pretrained": null,
+      "natural_delta_ssim_vs_pretrained": null
+    }
+  },
+  "recommendation": "Fine-tuning did not improve microscopy enough on this benchmark slice; review training setup and checkpoint quality.",
+  "notes": "Post-fine-tuning tradeoff summary. This is NOT a Day 3 dataset-screening decision. Use compare_summary.csv for full pretrained-vs-finetuned deltas.",
+  "compare_summary_path": "/vol/artifacts/compare_finetuned/compare_summary.csv"
+}

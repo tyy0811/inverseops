@@ -1,0 +1,4 @@
+sigma,domain,pretrained_psnr_mean,finetuned_psnr_mean,delta_psnr,pretrained_ssim_mean,finetuned_ssim_mean,delta_ssim,checkpoint_path
+15,microscopy,36.6499,37.7313,1.0814,0.8662,0.9319,0.0657,/vol/outputs/training/checkpoints/best.pt
+25,microscopy,30.7874,36.2363,5.4489,0.6969,0.9248,0.2279,/vol/outputs/training/checkpoints/best.pt
+50,microscopy,23.4738,33.5114,10.0376,0.4380,0.8946,0.4566,/vol/outputs/training/checkpoints/best.pt

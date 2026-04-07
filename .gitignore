@@ -1,7 +1,19 @@
-# Data and artifacts
+# Data (large binaries)
 /data/
-artifacts/
-outputs/
+
+# Artifacts — ignore all except small result CSVs/JSONs
+artifacts/*
+!artifacts/baseline/
+!artifacts/compare_finetuned/
+artifacts/**/*.png
+
+# Outputs — ignore all except modal training summary
+outputs/*
+!outputs/modal_training/
+outputs/modal_training/checkpoints/
+
+# Docs (local only)
+docs/
 
 # Python
 __pycache__/

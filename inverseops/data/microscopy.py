@@ -51,6 +51,7 @@ class MicroscopyDataset:
         self._all_files: list[Path] = []
         self._split_files: list[Path] = []
         self._prepared = False
+        self._image_cache: dict[int, Image.Image] = {}
 
     def prepare(self) -> None:
         """Discover image files and compute splits.
@@ -132,10 +133,28 @@ class MicroscopyDataset:
             raise RuntimeError("Dataset not prepared. Call prepare() first.")
         return self._split_files[index]
 
+    def preload(self) -> None:
+        """Load all images into memory for faster training.
+
+        Call after prepare(). Subsequent load_image() calls return
+        cached copies instead of reading from disk.
+        """
+        if not self._prepared:
+            raise RuntimeError("Dataset not prepared. Call prepare() first.")
+        for i in range(len(self)):
+            self._image_cache[i] = self._read_image(i)
+        print(f"Preloaded {len(self._image_cache)} images into memory")
+
+    def _read_image(self, index: int) -> Image.Image:
+        """Read image from disk as grayscale."""
+        path = self.image_path(index)
+        img = Image.open(path)
+        return img.convert("L")
+
     def load_image(self, index: int) -> Image.Image:
         """Load and return the image at the given index as grayscale.
 
-        Always converts to grayscale mode 'L' regardless of source format.
+        Returns cached copy if preload() was called, otherwise reads from disk.
 
         Args:
             index: Index of the image to load.
@@ -143,7 +162,6 @@ class MicroscopyDataset:
         Returns:
             PIL Image in grayscale mode ('L').
         """
-        path = self.image_path(index)
-        img = Image.open(path)
-        # Explicitly convert to grayscale for consistency
-        return img.convert("L")
+        if index in self._image_cache:
+            return self._image_cache[index]
+        return self._read_image(index)

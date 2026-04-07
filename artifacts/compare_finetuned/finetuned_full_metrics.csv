@@ -1,0 +1,16 @@
+sigma,noise_type,domain,dataset_name,is_real_data,image_name,image_path,psnr,ssim,seed,model_name,model_checkpoint,mode
+15,synthetic_gaussian,microscopy,fmd,True,avg50.png,14/avg50.png,40.8801,0.9606,42,swinir,best.pt,full
+15,synthetic_gaussian,microscopy,fmd,True,avg50.png,9/avg50.png,34.5840,0.9268,142,swinir,best.pt,full
+25,synthetic_gaussian,microscopy,fmd,True,avg50.png,14/avg50.png,38.7044,0.9307,43,swinir,best.pt,full
+25,synthetic_gaussian,microscopy,fmd,True,avg50.png,9/avg50.png,32.7487,0.8966,143,swinir,best.pt,full
+50,synthetic_gaussian,microscopy,fmd,True,avg50.png,14/avg50.png,36.4149,0.9340,44,swinir,best.pt,full
+50,synthetic_gaussian,microscopy,fmd,True,avg50.png,9/avg50.png,29.4484,0.8498,144,swinir,best.pt,full
+15,synthetic_gaussian,natural,natural,True,01.png,01.png,29.0953,0.8678,42,swinir,best.pt,full
+15,synthetic_gaussian,natural,natural,True,02.png,02.png,32.3083,0.8799,142,swinir,best.pt,full
+15,synthetic_gaussian,natural,natural,True,03.png,03.png,31.2137,0.9083,242,swinir,best.pt,full
+25,synthetic_gaussian,natural,natural,True,01.png,01.png,26.9226,0.8474,43,swinir,best.pt,full
+25,synthetic_gaussian,natural,natural,True,02.png,02.png,28.5614,0.8592,143,swinir,best.pt,full
+25,synthetic_gaussian,natural,natural,True,03.png,03.png,29.4437,0.8827,243,swinir,best.pt,full
+50,synthetic_gaussian,natural,natural,True,01.png,01.png,24.4718,0.6435,44,swinir,best.pt,full
+50,synthetic_gaussian,natural,natural,True,02.png,02.png,25.4191,0.6163,144,swinir,best.pt,full
+50,synthetic_gaussian,natural,natural,True,03.png,03.png,24.9859,0.7039,244,swinir,best.pt,full

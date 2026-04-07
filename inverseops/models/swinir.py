@@ -11,6 +11,7 @@ Model architecture: SwinIR-M (medium) trained on DFWB dataset.
 Supported noise levels: 15, 25, 50 (sigma).
 """
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -27,8 +28,9 @@ MODEL_URLS: dict[int, str] = {
     50: "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/004_grayDN_DFWB_s128w8_SwinIR-M_noise50.pth",
 }
 
-# Default cache directory for downloaded weights
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "inverseops" / "models"
+# Default cache directory for downloaded weights (override via INVERSEOPS_CACHE env var)
+_cache_base = Path(os.environ.get("INVERSEOPS_CACHE", Path.home() / ".cache" / "inverseops"))
+DEFAULT_CACHE_DIR = _cache_base / "models"
 
 
 class SwinIRBaseline:

@@ -1,0 +1,7 @@
+sigma,noise_type,domain,dataset_name,is_real_data,count,psnr_mean,psnr_std,ssim_mean,ssim_std,seed,model_name,model_checkpoint,mode,decision_gate_valid,evidence_tier
+15,synthetic_gaussian,microscopy,fmd,True,1,36.6499,0.0000,0.8662,0.0000,42,swinir,004_grayDN_DFWB_s128w8_SwinIR-M_noise15.pth,full,True,pilot
+25,synthetic_gaussian,microscopy,fmd,True,1,30.7874,0.0000,0.6969,0.0000,42,swinir,004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth,full,True,pilot
+50,synthetic_gaussian,microscopy,fmd,True,1,23.4738,0.0000,0.4380,0.0000,42,swinir,004_grayDN_DFWB_s128w8_SwinIR-M_noise50.pth,full,True,pilot
+15,synthetic_gaussian,natural,natural,True,1,32.8070,0.0000,0.9195,0.0000,42,swinir,004_grayDN_DFWB_s128w8_SwinIR-M_noise15.pth,full,True,pilot
+25,synthetic_gaussian,natural,natural,True,1,30.2727,0.0000,0.8773,0.0000,42,swinir,004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth,full,True,pilot
+50,synthetic_gaussian,natural,natural,True,1,26.0168,0.0000,0.7766,0.0000,42,swinir,004_grayDN_DFWB_s128w8_SwinIR-M_noise50.pth,full,True,pilot

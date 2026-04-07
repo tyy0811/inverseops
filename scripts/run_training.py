@@ -83,7 +83,7 @@ def load_config(config_path: Path) -> dict:
     return config
 
 
-def build_dataloaders(config: dict) -> tuple[DataLoader, DataLoader]:
+def build_dataloaders(config: dict, preload: bool = False) -> tuple[DataLoader, DataLoader]:
     """Build train and validation DataLoaders."""
     data_cfg = config["data"]
     seed = config["seed"]
@@ -95,6 +95,8 @@ def build_dataloaders(config: dict) -> tuple[DataLoader, DataLoader]:
         seed=seed,
     )
     train_base.prepare()
+    if preload:
+        train_base.preload()
 
     train_dataset = MicroscopyTrainDataset(
         base_dataset=train_base,
@@ -111,6 +113,8 @@ def build_dataloaders(config: dict) -> tuple[DataLoader, DataLoader]:
         seed=seed,
     )
     val_base.prepare()
+    if preload:
+        val_base.preload()
 
     val_dataset = MicroscopyTrainDataset(
         base_dataset=val_base,
@@ -224,6 +228,12 @@ def main() -> int:
         default=None,
         help="Override batch size",
     )
+    parser.add_argument(
+        "--preload",
+        action="store_true",
+        default=False,
+        help="Preload all images into RAM before training",
+    )
 
     args = parser.parse_args()
 
@@ -274,7 +284,7 @@ def main() -> int:
 
     # Build data loaders
     print("\nBuilding datasets...")
-    train_loader, val_loader = build_dataloaders(config)
+    train_loader, val_loader = build_dataloaders(config, preload=args.preload)
 
     # Build model
     print("\nBuilding model...")

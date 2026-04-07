@@ -1,0 +1,7 @@
+sigma,noise_type,domain,dataset_name,is_real_data,image_name,image_path,psnr,ssim,seed,model_name,model_checkpoint,mode
+15,synthetic_gaussian,microscopy,fmd,True,avg50.png,14/avg50.png,40.3679,0.9386,42,swinir,best.pt,partial
+15,synthetic_gaussian,microscopy,fmd,True,avg50.png,9/avg50.png,35.0946,0.9252,142,swinir,best.pt,partial
+25,synthetic_gaussian,microscopy,fmd,True,avg50.png,14/avg50.png,39.3327,0.9446,43,swinir,best.pt,partial
+25,synthetic_gaussian,microscopy,fmd,True,avg50.png,9/avg50.png,33.1398,0.9050,143,swinir,best.pt,partial
+50,synthetic_gaussian,microscopy,fmd,True,avg50.png,14/avg50.png,36.7337,0.9352,44,swinir,best.pt,partial
+50,synthetic_gaussian,microscopy,fmd,True,avg50.png,9/avg50.png,30.2891,0.8540,144,swinir,best.pt,partial

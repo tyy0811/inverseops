@@ -4,7 +4,17 @@ Microscopy image denoising via SwinIR fine-tuning.
 
 ## Status
 
-**Day 3**: Baseline evaluation complete. Pretrained SwinIR can now be evaluated on microscopy and natural images with synthetic Gaussian noise. Results are logged to W&B and saved as CSV.
+**Fine-tuning complete.** SwinIR fine-tuned on FMD microscopy data using Modal cloud GPU (A100).
+
+### Results: Fine-tuned vs Pretrained
+
+| Noise level | Pretrained PSNR | Fine-tuned PSNR | Delta | SSIM gain |
+|-------------|----------------|-----------------|-------|-----------|
+| sigma=15 | 36.65 dB | 37.73 dB | **+1.08 dB** | +0.066 |
+| sigma=25 | 30.79 dB | 36.24 dB | **+5.45 dB** | +0.228 |
+| sigma=50 | 23.47 dB | 33.51 dB | **+10.04 dB** | +0.457 |
+
+Fine-tuning on domain-specific microscopy data dramatically improves denoising, especially at high noise levels. Training ran for 16 epochs (early stopping) in ~2.5 hours on A100.
 
 ## Quick Start
 
@@ -164,28 +174,41 @@ python scripts/run_evaluation.py \
 
 Comparison outputs `artifacts/compare_finetuned/compare_summary.csv` with delta PSNR/SSIM per sigma and domain.
 
-### Day 5: clean fine-tuning run
+### Modal cloud GPU training
 
 ```bash
-make train-day5
-# or:
-python scripts/run_training.py \
-    --config configs/denoise_swinir.yaml \
-    --run-name swinir_fmd_denoise_sigma15_25_50_v1
+pip install modal && modal setup
+
+# Full training on A100 (bs=4, 100 epochs with early stopping)
+modal run --detach scripts/modal_train.py --batch-size 4
+
+# Resume from checkpoint
+modal run --detach scripts/modal_train.py --batch-size 4 --resume
+
+# Download results
+modal volume get inverseops-vol outputs/training/checkpoints/ outputs/modal_training/checkpoints/
+modal volume get inverseops-vol outputs/training/training_summary.json outputs/modal_training/
 ```
 
-To force W&B on: add `--wandb`. To disable: add `--no-wandb`. Config default is `tracking.enabled`.
+Features: data baked into image (no volume IO), pretrained weights cached, `--preload` for in-memory dataset, `--resume` for checkpoint recovery.
+
+### Local training
+
+```bash
+python scripts/run_training.py \
+    --config configs/denoise_swinir.yaml \
+    --preload --no-wandb
+```
 
 **Artifacts:**
 - `outputs/training/checkpoints/best.pt` — best checkpoint
 - `outputs/training/checkpoints/latest.pt` — last epoch
 - `outputs/training/training_summary.json` — run metadata (PSNR, timing, GPU memory, config)
-- W&B run under project `inverseops-training` (if enabled)
 
 ## Roadmap
 
 - [x] Data pipeline
 - [x] Baseline evaluation
-- [x] Fine-tuning
+- [x] Fine-tuning (Modal A100, +10 dB at sigma=50)
 - [ ] Serving
 - [ ] Inference optimization
