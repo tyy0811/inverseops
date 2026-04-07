@@ -160,7 +160,10 @@ class Trainer:
         epochs_completed = epoch
 
         # Print final summary
-        print(f"\nTraining complete. Best PSNR: {self.best_val_psnr:.2f} dB at epoch {self.best_epoch}")
+        print(
+            f"\nTraining complete. Best PSNR: "
+            f"{self.best_val_psnr:.2f} dB at epoch {self.best_epoch}"
+        )
 
         # Create summary
         best_checkpoint_path = str(self.checkpoint_dir / "best.pt")

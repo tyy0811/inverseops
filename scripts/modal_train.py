@@ -13,8 +13,12 @@ Usage:
     modal run scripts/modal_train.py --epochs 50 --batch-size 8
 
     # Download results after training
-    modal volume get inverseops-vol outputs/training/checkpoints/ outputs/modal_training/checkpoints/
-    modal volume get inverseops-vol outputs/training/training_summary.json outputs/modal_training/
+    modal volume get inverseops-vol \
+        outputs/training/checkpoints/ \
+        outputs/modal_training/checkpoints/
+    modal volume get inverseops-vol \
+        outputs/training/training_summary.json \
+        outputs/modal_training/
 """
 
 from __future__ import annotations
@@ -54,7 +58,13 @@ base_image = (
     )
     .run_commands(
         f"mkdir -p {WEIGHTS_DIR}",
-        f"python -c \"import urllib.request; urllib.request.urlretrieve('{SWINIR_WEIGHTS_URL}', '{WEIGHTS_DIR}/004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth')\"",
+        (
+            f"python -c \"import urllib.request; "
+            f"urllib.request.urlretrieve("
+            f"'{SWINIR_WEIGHTS_URL}', "
+            f"'{WEIGHTS_DIR}/"
+            f"004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth')\""
+        ),
     )
 )
 
@@ -64,7 +74,11 @@ data_image = (
     .add_local_file("data/raw/fmd.zip", remote_path="/tmp/fmd.zip", copy=True)
     .run_commands(
         f"mkdir -p {DATA_DIR}",
-        f"python -c \"import zipfile; zipfile.ZipFile('/tmp/fmd.zip').extractall('{DATA_DIR}')\"",
+        (
+            f"python -c \"import zipfile; "
+            f"zipfile.ZipFile('/tmp/fmd.zip')"
+            f".extractall('{DATA_DIR}')\""
+        ),
         "rm /tmp/fmd.zip",
     )
 )
@@ -342,6 +356,14 @@ def main(
 
     print("\n" + "=" * 60)
     print("Download results:")
-    print("  modal volume get inverseops-vol outputs/training/checkpoints/ outputs/modal_training/checkpoints/")
-    print("  modal volume get inverseops-vol outputs/training/training_summary.json outputs/modal_training/")
+    print(
+        "  modal volume get inverseops-vol"
+        " outputs/training/checkpoints/"
+        " outputs/modal_training/checkpoints/"
+    )
+    print(
+        "  modal volume get inverseops-vol"
+        " outputs/training/training_summary.json"
+        " outputs/modal_training/"
+    )
     print("=" * 60)

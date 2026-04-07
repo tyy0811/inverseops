@@ -4,7 +4,8 @@
 Usage:
     python scripts/run_training.py --config configs/denoise_swinir.yaml
     python scripts/run_training.py --config configs/denoise_swinir.yaml --no-wandb
-    python scripts/run_training.py --config configs/denoise_swinir.yaml --resume outputs/training/checkpoints/latest.pt
+    python scripts/run_training.py --config configs/denoise_swinir.yaml \\
+        --resume outputs/training/checkpoints/latest.pt
 """
 
 import argparse
@@ -83,7 +84,9 @@ def load_config(config_path: Path) -> dict:
     return config
 
 
-def build_dataloaders(config: dict, preload: bool = False) -> tuple[DataLoader, DataLoader]:
+def build_dataloaders(
+    config: dict, preload: bool = False,
+) -> tuple[DataLoader, DataLoader]:
     """Build train and validation DataLoaders."""
     data_cfg = config["data"]
     seed = config["seed"]
@@ -190,7 +193,10 @@ def main() -> int:
         "--run-name",
         type=str,
         default=None,
-        help="Run name for W&B and metadata (default: swinir_fmd_denoise_sigma15_25_50_v1)",
+        help=(
+            "Run name for W&B and metadata"
+            " (default: swinir_fmd_denoise_sigma15_25_50_v1)"
+        ),
     )
     parser.add_argument(
         "--resume",
@@ -328,7 +334,9 @@ def main() -> int:
         resume_kwargs["start_epoch"] = checkpoint.get("epoch", 0)
         resume_kwargs["best_val_psnr"] = checkpoint.get("best_val_psnr", float("-inf"))
         resume_kwargs["best_epoch"] = checkpoint.get("best_epoch", 0)
-        resume_kwargs["epochs_without_improvement"] = checkpoint.get("epochs_without_improvement", 0)
+        resume_kwargs["epochs_without_improvement"] = checkpoint.get(
+            "epochs_without_improvement", 0
+        )
         resume_kwargs["global_step"] = checkpoint.get("global_step", 0)
         print(f"Resumed from epoch {resume_kwargs['start_epoch']}")
 
@@ -372,7 +380,7 @@ def main() -> int:
     print(f"\nStarting training (run: {run_name})...")
     print("=" * 70)
     wall_start = time.time()
-    summary = trainer.train()
+    trainer.train()
     wall_seconds = time.time() - wall_start
     print("=" * 70)
 
@@ -406,7 +414,11 @@ def main() -> int:
         "wandb_enabled": wandb_enabled,
         "wandb_project": wandb_project,
         "wandb_run_name": run_name,
-        "max_gpu_memory_mb": round(max_gpu_memory_mb, 1) if max_gpu_memory_mb is not None else None,
+        "max_gpu_memory_mb": (
+            round(max_gpu_memory_mb, 1)
+            if max_gpu_memory_mb is not None
+            else None
+        ),
     })
 
     with open(summary_path, "w") as f:
@@ -436,10 +448,16 @@ def main() -> int:
         return 1
 
     # Print success summary
-    gpu_str = f"{max_gpu_memory_mb:.1f} MB" if max_gpu_memory_mb is not None else "N/A (CPU)"
+    gpu_str = (
+        f"{max_gpu_memory_mb:.1f} MB"
+        if max_gpu_memory_mb is not None
+        else "N/A (CPU)"
+    )
     print(f"\nRun: {run_name}")
     print(f"Best checkpoint: {output_dir / 'checkpoints' / 'best.pt'}")
-    print(f"Best val PSNR: {saved_summary['best_val_psnr']:.2f} dB (epoch {saved_summary['best_epoch']})")
+    best_psnr = saved_summary['best_val_psnr']
+    best_ep = saved_summary['best_epoch']
+    print(f"Best val PSNR: {best_psnr:.2f} dB (epoch {best_ep})")
     print(f"Training time: {wall_seconds / 60:.1f} min")
     print(f"Peak GPU memory: {gpu_str}")
     print(f"W&B: {'enabled' if wandb_enabled else 'disabled'}")

@@ -1,6 +1,5 @@
 """Tests for training module."""
 
-import random
 import sys
 from pathlib import Path
 from unittest import mock
@@ -245,8 +244,8 @@ class TestTrainer:
 
     def test_trainer_creates_checkpoint_dir(self, dummy_model, dummy_loaders, tmp_path):
         """Trainer should create checkpoint directory."""
-        from inverseops.training.trainer import Trainer
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -272,8 +271,8 @@ class TestTrainer:
 
     def test_trainer_saves_checkpoints(self, dummy_model, dummy_loaders, tmp_path):
         """Trainer should save latest and best checkpoints."""
-        from inverseops.training.trainer import Trainer
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -299,8 +298,8 @@ class TestTrainer:
 
     def test_trainer_returns_summary(self, dummy_model, dummy_loaders, tmp_path):
         """Trainer.train() should return summary dict."""
-        from inverseops.training.trainer import Trainer
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -329,8 +328,8 @@ class TestTrainer:
 
     def test_resume_restores_trainer_state(self, dummy_model, dummy_loaders, tmp_path):
         """Resuming should restore bookkeeping and start at the correct epoch."""
-        from inverseops.training.trainer import Trainer
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -366,8 +365,8 @@ class TestTrainer:
 
     def test_psnr_is_mean_per_image(self, dummy_model, dummy_loaders, tmp_path):
         """_compute_psnr should return mean of per-image PSNRs."""
-        from inverseops.training.trainer import Trainer
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -398,9 +397,10 @@ class TestTrainer:
     def test_latest_checkpoint_has_updated_best_val_psnr(
         self, dummy_model, dummy_loaders, tmp_path
     ):
-        """latest.pt should contain the updated best_val_psnr after an improving epoch."""
-        from inverseops.training.trainer import Trainer
+        """latest.pt should contain the updated best_val_psnr
+        after an improving epoch."""
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -571,10 +571,12 @@ class TestArtifactVerification:
         loader = DataLoader(dataset, batch_size=2)
         return loader, loader
 
-    def test_training_produces_all_artifacts(self, dummy_model, dummy_loaders, tmp_path):
+    def test_training_produces_all_artifacts(
+        self, dummy_model, dummy_loaders, tmp_path,
+    ):
         """Training should produce latest.pt, best.pt, and training_summary.json."""
-        from inverseops.training.trainer import Trainer
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -630,8 +632,8 @@ class TestDay5Summary:
 
     def test_trainer_summary_has_core_keys(self, dummy_model, dummy_loaders, tmp_path):
         """Trainer.train() summary must include core keys for Day 5 enrichment."""
-        from inverseops.training.trainer import Trainer
         from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
 
         train_loader, val_loader = dummy_loaders
         optimizer = torch.optim.Adam(dummy_model.parameters())
@@ -664,7 +666,6 @@ class TestDay5Summary:
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-        from scripts.run_training import main
         import argparse
 
         # Parse with no --run-name to verify default is applied via code path

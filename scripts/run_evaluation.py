@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+
 try:
     import wandb
 except ImportError:
@@ -212,6 +213,7 @@ def load_finetuned_models(
     evaluated across noise levels).
     """
     import torch
+
     from inverseops.models.swinir import get_trainable_swinir
 
     if device is None:
@@ -1104,7 +1106,10 @@ def main() -> int:
     parser.add_argument(
         "--pilot-dev",
         action="store_true",
-        help="Laptop-friendly full-sigma pilot run: all sigmas, tiny matched subset, no W&B",
+        help=(
+            "Laptop-friendly full-sigma pilot run: "
+            "all sigmas, tiny matched subset, no W&B"
+        ),
     )
     parser.add_argument(
         "--checkpoint",
@@ -1132,7 +1137,11 @@ def main() -> int:
     if args.model_mode == "finetuned" and args.checkpoint is None:
         print("Error: --checkpoint is required when --model-mode is 'finetuned'")
         return 1
-    if args.model_mode == "finetuned" and args.checkpoint and not args.checkpoint.exists():
+    if (
+        args.model_mode == "finetuned"
+        and args.checkpoint
+        and not args.checkpoint.exists()
+    ):
         print(f"Error: Checkpoint not found: {args.checkpoint}")
         return 1
 
@@ -1266,7 +1275,10 @@ def main() -> int:
     # Initialize W&B
     if not args.no_wandb:
         if wandb is None:
-            print("Error: wandb is required for W&B logging. Install with: pip install wandb")
+            print(
+                "Error: wandb is required for W&B logging."
+                " Install with: pip install wandb"
+            )
             return 1
         checkpoint_sources = {
             sigma: models[sigma].checkpoint_source for sigma in sigmas
@@ -1344,7 +1356,9 @@ def main() -> int:
     natural_result_count = sum(
         1 for r in all_results if "natural" in r.domain.lower()
     )
-    microscopy_image_count = microscopy_result_count // num_sigmas if num_sigmas > 0 else 0
+    microscopy_image_count = (
+        microscopy_result_count // num_sigmas if num_sigmas > 0 else 0
+    )
     natural_image_count = natural_result_count // num_sigmas if num_sigmas > 0 else 0
     evidence_tier = compute_evidence_tier(microscopy_image_count, natural_image_count)
 
@@ -1446,10 +1460,10 @@ def main() -> int:
     if args.model_mode == "finetuned":
         spec_detected = specialization_result.get("specialization_detected")
         print(f"  Specialization detected: {spec_detected}")
-        print(f"  Artifact: specialization_summary.json")
+        print("  Artifact: specialization_summary.json")
     else:
         print(f"  Decision gate valid: {decision_result['decision_gate_valid']}")
-        print(f"  Artifact: day3_decision.json")
+        print("  Artifact: day3_decision.json")
 
     print("=" * 50)
 

@@ -88,7 +88,8 @@ class TestSummaryCSV:
     """Tests for baseline_summary.csv output."""
 
     def test_save_summary_csv_columns(self):
-        """baseline_summary.csv should have all required columns including evidence_tier."""
+        """baseline_summary.csv should have all required columns
+        including evidence_tier."""
         from scripts.run_evaluation import save_summary_csv
 
         agg = {
@@ -1128,7 +1129,7 @@ class TestSpecializationSummary:
             ])
 
             out_path = tmpdir / "specialization_summary.json"
-            result = save_specialization_summary(
+            save_specialization_summary(
                 agg=agg, output_path=out_path, mode="full",
                 sigmas=[15, 25, 50], evidence_tier="pilot",
                 microscopy_image_count=2, natural_image_count=3,
@@ -1156,7 +1157,8 @@ class TestSpecializationSummary:
             assert "NOT a Day 3" in data["notes"]
 
     def test_finetuned_does_not_call_save_decision_json(self, monkeypatch):
-        """Finetuned branch should call save_specialization_summary, not save_decision_json."""
+        """Finetuned branch should call
+        save_specialization_summary, not save_decision_json."""
         import scripts.run_evaluation as mod
 
         decision_called = []
@@ -1174,7 +1176,10 @@ class TestSpecializationSummary:
             return orig_save_specialization(*args, **kwargs)
 
         monkeypatch.setattr(mod, "save_decision_json", mock_save_decision)
-        monkeypatch.setattr(mod, "save_specialization_summary", mock_save_specialization)
+        monkeypatch.setattr(
+            mod, "save_specialization_summary",
+            mock_save_specialization,
+        )
 
         agg = self._make_agg()
 
@@ -1187,13 +1192,12 @@ class TestSpecializationSummary:
             evidence_tier = "pilot"
             model_mode = "finetuned"
 
+            # Create minimal EvalResult list for save_csv
             from scripts.run_evaluation import (
+                EvalResult,
                 save_csv,
                 save_summary_csv,
             )
-
-            # Create minimal EvalResult list for save_csv
-            from scripts.run_evaluation import EvalResult
             results = [
                 EvalResult(sigma=15, domain="microscopy", dataset_name="fmd",
                            is_real_data=True, image_name="a.png", image_path="a.png",
@@ -1220,13 +1224,20 @@ class TestSpecializationSummary:
                     agg, decision_path, mode, sigmas, gap_threshold_db=1.0,
                 )
 
-            assert len(decision_called) == 0, "save_decision_json should not be called for finetuned"
-            assert len(specialization_called) == 1, "save_specialization_summary should be called for finetuned"
+            assert len(decision_called) == 0, (
+                "save_decision_json should not be called"
+                " for finetuned"
+            )
+            assert len(specialization_called) == 1, (
+                "save_specialization_summary should be"
+                " called for finetuned"
+            )
             assert not (tmpdir / "day3_decision.json").exists()
             assert (tmpdir / "specialization_summary.json").exists()
 
     def test_specialization_detected_true(self):
-        """specialization_detected should be True when micro improves and natural regresses."""
+        """specialization_detected should be True when micro
+        improves and natural regresses."""
         from scripts.run_evaluation import save_specialization_summary
 
         agg = self._make_agg()
@@ -1340,8 +1351,11 @@ class TestSpecializationSummary:
             # Should still have a valid descriptive recommendation
             assert result["recommendation"] is not None
             assert len(result["recommendation"]) > 10
-            assert "baseline comparison unavailable" in result["recommendation"].lower() or \
-                   "pretrained" in result["recommendation"].lower()
+            rec = result["recommendation"].lower()
+            assert (
+                "baseline comparison unavailable" in rec
+                or "pretrained" in rec
+            )
             # Per-sigma delta fields should be None
             for sigma_key, entry in result["per_sigma"].items():
                 assert entry["microscopy_delta_psnr_vs_pretrained"] is None
