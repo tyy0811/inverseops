@@ -1,1 +1,1 @@
-"""Serving infrastructure and API schemas."""
+"""Serving infrastructure: FastAPI application, QC layer, and Pydantic schemas."""

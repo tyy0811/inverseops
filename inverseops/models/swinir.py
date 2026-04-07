@@ -29,7 +29,9 @@ MODEL_URLS: dict[int, str] = {
 }
 
 # Default cache directory for downloaded weights (override via INVERSEOPS_CACHE env var)
-_cache_base = Path(os.environ.get("INVERSEOPS_CACHE", Path.home() / ".cache" / "inverseops"))
+_cache_base = Path(
+    os.environ.get("INVERSEOPS_CACHE", Path.home() / ".cache" / "inverseops")
+)
 DEFAULT_CACHE_DIR = _cache_base / "models"
 
 
@@ -151,6 +153,34 @@ class SwinIRBaseline:
         print(f"Saved to {dest}")
 
     @torch.no_grad()
+    def predict_raw(self, image: Image.Image) -> np.ndarray:
+        """Denoise a single image, returning the raw float32 output.
+
+        Args:
+            image: Input PIL Image (will be converted to grayscale if needed).
+
+        Returns:
+            Raw model output as float32 numpy array, shape [H, W],
+            range approximately [0, 1]. Not clipped — may contain values
+            outside [0, 1] or NaN/Inf if inference is numerically unstable.
+
+        Raises:
+            RuntimeError: If model is not loaded.
+        """
+        if self._model is None:
+            raise RuntimeError("Model not loaded. Call load() first.")
+
+        if image.mode != "L":
+            image = image.convert("L")
+
+        arr = np.array(image, dtype=np.float32) / 255.0
+        tensor = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)
+        tensor = tensor.to(self.device)
+
+        output = self._model(tensor)
+        return output.squeeze().cpu().numpy()
+
+    @torch.no_grad()
     def predict_image(self, image: Image.Image) -> Image.Image:
         """Denoise a single image.
 
@@ -163,25 +193,8 @@ class SwinIRBaseline:
         Raises:
             RuntimeError: If model is not loaded.
         """
-        if self._model is None:
-            raise RuntimeError("Model not loaded. Call load() first.")
-
-        # Convert to grayscale if needed
-        if image.mode != "L":
-            image = image.convert("L")
-
-        # Convert to tensor: [H, W] -> [1, 1, H, W], normalized to [0, 1]
-        arr = np.array(image, dtype=np.float32) / 255.0
-        tensor = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)
-        tensor = tensor.to(self.device)
-
-        # Run inference
-        output = self._model(tensor)
-
-        # Convert back to PIL: [1, 1, H, W] -> [H, W] -> uint8
-        output_arr = output.squeeze().cpu().numpy()
+        output_arr = self.predict_raw(image)
         output_arr = np.clip(output_arr * 255.0, 0, 255).astype(np.uint8)
-
         return Image.fromarray(output_arr, mode="L")
 
 

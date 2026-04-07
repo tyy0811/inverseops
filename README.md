@@ -1,10 +1,10 @@
 # InverseOps
 
-Fine-tuning [SwinIR](https://github.com/JingyunLiang/SwinIR) for microscopy image denoising, evaluated on the [Fluorescence Microscopy Denoising (FMD)](https://zenodo.org/records/3713545) dataset.
+[![CI](https://github.com/tyy0811/inverseops/actions/workflows/ci.yaml/badge.svg)](https://github.com/tyy0811/inverseops/actions/workflows/ci.yaml)
 
-## Objective
+**Domain-adapting a pretrained image restoration model (SwinIR) for fluorescence microscopy denoising.** Pretrained models trained on natural images degrade significantly on scientific imaging; this project quantifies that gap and closes it through targeted fine-tuning, achieving **+10 dB PSNR at high noise levels**.
 
-Pretrained image restoration models are trained on natural images and underperform on microscopy data due to domain gap. This project fine-tunes SwinIR on microscopy images to close that gap, with a full pipeline for data loading, training (local and cloud GPU), evaluation, and comparison against the pretrained baseline.
+Full pipeline: data loading, cloud GPU training (Modal A100), evaluation, FastAPI inference API, and Docker deployment.
 
 ## Results
 
@@ -39,21 +39,108 @@ Domain-specific fine-tuning dramatically improves denoising, especially at high 
 |:-----:|:-----------------:|:-------------------:|
 | ![clean](assets/clean.png) | ![noisy](assets/noisy_sigma50.png) | ![denoised](assets/denoised_sigma50.png) |
 
+Even at sigma=50 — where the noisy input is barely recognizable (16 dB) — the fine-tuned model recovers cellular structure clearly (27 dB).
+
+### Inference Latency (CPU)
+
+Benchmarked on CPU — the cost-sensitive deployment target. GPU inference is orders of magnitude faster (A100 training ran at ~0.1s/step).
+
+| Backend | 128x128 (ms) | 256x256 (ms) |
+|---------|-------------|-------------|
+| PyTorch FP32 | 12,475 | 55,933 |
+| ONNX Runtime | 5,106 | 19,842 |
+| **Speedup** | **2.3x** | **2.8x** |
+
+ONNX export succeeded (52 MB, opset 17, dynamic axes).
+
 ## Dataset
 
 [FMD (Fluorescence Microscopy Denoising)](https://zenodo.org/records/3713545) — a benchmark dataset of fluorescence microscopy images across multiple modalities (Confocal, Two-Photon, Wide-Field). This project uses the Confocal FISH subset with ground truth images averaged from 50 captures. Synthetic Gaussian noise at sigma 15, 25, 50 is added to create clean/noisy pairs for training and evaluation.
+
+## Inference API
+
+Three endpoints: `POST /restore`, `GET /health`, `GET /metrics`.
+
+**Restore an image:**
+
+```bash
+curl -X POST http://localhost:8000/restore \
+  -F "file=@noisy_image.png" \
+  -F "noise_level=25" \
+  --output restored.png
+```
+
+The restored PNG is returned in the body. Structured QC metadata is in response headers:
+
+```json
+{
+  "status": "completed",
+  "decision": "good",
+  "metrics": {"inference_ms": 5106.0, "output_valid": true},
+  "input_analysis": {
+    "noise_level_source": "user_supplied",
+    "noise_level_sigma": 25.0,
+    "in_calibrated_range": true
+  },
+  "model_info": {"backend": "swinir_sigma25", "version": "0.1.0"}
+}
+```
+
+The `noise_level` parameter selects the checkpoint trained for that sigma (15, 25, or 50). Training one specialized model per noise level produces better results than a single model covering all levels — this is visible in the +10 dB improvement at sigma=50. If `noise_level` is omitted, the system estimates it via wavelet MAD and defaults to the sigma=25 model. The `decision` field reports `good`, `review`, or `out_of_range` based on whether the input falls within the model's calibrated range.
+
+**Example: out-of-range input**
+
+```json
+{
+  "status": "completed",
+  "decision": "out_of_range",
+  "metrics": {"inference_ms": 5230.0, "output_valid": true},
+  "input_analysis": {
+    "noise_level_source": "estimated",
+    "noise_level_sigma": 78.4,
+    "estimation_method": "wavelet_mad",
+    "in_calibrated_range": false
+  },
+  "model_info": {"backend": "swinir_sigma50", "version": "0.1.0"}
+}
+```
+
+The model still returns a restored image, but the `decision: out_of_range` flag tells downstream consumers that the input fell outside the calibrated training range and the result should be treated cautiously.
+
+**Health check and Prometheus metrics:**
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/metrics   # Prometheus-compatible
+```
+
+Exposed counters: `restore_requests_total`, `restore_completed_total`, `restore_failed_total`, `restore_latency_seconds`, `qc_decision_total{decision}`.
+
+**Start the server:**
+
+```bash
+make serve
+```
+
+### Docker
+
+```bash
+docker-compose up
+# API available at http://localhost:8000
+```
 
 ## Quick Start
 
 ```bash
 make install
-bash scripts/download_data.sh   # Creates data directories
+bash scripts/download_data.sh
 make test
+make serve  # Start inference API
 ```
 
 ## Training
 
-### Modal cloud GPU
+Trained on Modal cloud GPU (A100) — local hardware is CPU-only, so Modal provides on-demand GPU access without managing infrastructure. The training code itself is standard PyTorch and can run on any GPU environment; Modal is just the convenient cloud target.
 
 ```bash
 pip install modal && modal setup
@@ -104,16 +191,24 @@ inverseops/
     models/         # SwinIR architecture and wrappers
     training/       # Trainer with early stopping, AMP, losses
     evaluation/     # PSNR/SSIM metrics
-    serving/        # REST API schemas (planned)
+    serving/        # FastAPI inference API with QC layer
     tracking/       # W&B integration
+    export/         # ONNX export utilities
 scripts/
     modal_train.py      # Modal cloud GPU training
     run_training.py     # Local training CLI
     run_evaluation.py   # Evaluation pipeline
+    run_onnx_export.py  # ONNX export + benchmark
+    run_latency_bench.py # PyTorch latency benchmark
 configs/
     denoise_swinir.yaml # Training configuration
+docker/
+    Dockerfile          # Inference container
+    docker-compose.yaml # One-command deployment
 tests/                  # Unit and integration tests
 ```
+
+**Tests:** Data pipeline determinism, PSNR/SSIM on known inputs, QC decision logic, API endpoint integration (health, restore, metrics, oversized upload rejection, NaN detection), Pydantic schema roundtrips, import sanity checks.
 
 ## References
 

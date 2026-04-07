@@ -20,16 +20,18 @@ def test_import_data_base() -> None:
 def test_import_serving_schemas() -> None:
     """Verify serving.schemas imports successfully."""
     from inverseops.serving.schemas import (
+        HealthResponse,
         InputAnalysis,
+        Metrics,
         ModelInfo,
-        RestoreRequest,
         RestoreResponse,
     )
 
-    assert RestoreRequest is not None
     assert RestoreResponse is not None
     assert InputAnalysis is not None
     assert ModelInfo is not None
+    assert HealthResponse is not None
+    assert Metrics is not None
 
 
 def test_import_evaluation_metrics() -> None:

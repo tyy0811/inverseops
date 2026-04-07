@@ -1,4 +1,4 @@
-.PHONY: install test lint train eval serve samples \
+.PHONY: install test lint train eval serve samples bench docker onnx \
 	train-smoke train-short train-day5 compare-sigma50 compare-full
 
 PYTHON     ?= python3.11
@@ -18,7 +18,7 @@ lint:
 	mypy inverseops tests
 
 train:
-	@echo "train: not implemented yet"
+	$(PYTHON) scripts/run_training.py --config configs/denoise_swinir.yaml
 
 eval:
 	# Day 3 baseline evaluation
@@ -33,7 +33,16 @@ eval:
 	fi
 
 serve:
-	@echo "serve: not implemented yet"
+	uvicorn inverseops.serving.app:app --host 0.0.0.0 --port 8000
+
+bench:
+	$(PYTHON) scripts/run_latency_bench.py
+
+docker:
+	docker-compose -f docker/docker-compose.yaml up --build
+
+onnx:
+	$(PYTHON) scripts/run_onnx_export.py
 
 samples:
 	$(PYTHON) scripts/save_sample_degradations.py $${DATA_ROOT:-data/raw/fmd}

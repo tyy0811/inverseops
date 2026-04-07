@@ -1,0 +1,15 @@
+data/
+artifacts/
+outputs/
+notebooks/
+docs/
+tests/
+.git/
+.github/
+.claude/
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/

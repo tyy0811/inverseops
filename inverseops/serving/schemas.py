@@ -1,59 +1,79 @@
 """Pydantic schemas for the serving API.
 
 Defines request/response contracts for the /restore endpoint.
-FastAPI integration will be added in a future iteration.
 """
 
 from pydantic import BaseModel
-
-
-class RestoreRequest(BaseModel):
-    """Request schema for the /restore endpoint."""
-
-    noise_level: float | None = None
-    """Optional noise level hint. If not provided, will be estimated."""
-
-    image_path: str | None = None
-    """Path to the image to restore."""
 
 
 class InputAnalysis(BaseModel):
     """Analysis of the input image characteristics."""
 
     noise_level_source: str = "estimated"
-    """How the noise level was determined: 'provided' or 'estimated'."""
+    """How the noise level was determined: 'user_supplied' or 'estimated'."""
 
     noise_level_sigma: float | None = None
     """Estimated or provided noise level (sigma)."""
+
+    estimation_method: str | None = None
+    """Method used for estimation (e.g., 'wavelet_mad'). None if user-supplied."""
 
     in_calibrated_range: bool = True
     """Whether the noise level falls within the model's calibrated range."""
 
 
+class Metrics(BaseModel):
+    """Inference performance metrics."""
+
+    inference_ms: float
+    """Inference time in milliseconds."""
+
+    output_valid: bool
+    """Whether the output passed validation checks."""
+
+
 class ModelInfo(BaseModel):
     """Information about the model used for restoration."""
 
-    backend: str = "pytorch"
-    """Inference backend (e.g., 'pytorch', 'onnx', 'tensorrt')."""
+    backend: str = "swinir_microscopy_v1"
+    """Model identifier."""
 
     version: str = "0.1.0"
     """Model version string."""
 
 
 class RestoreResponse(BaseModel):
-    """Response schema for the /restore endpoint.
+    """Response metadata for the /restore endpoint.
 
-    Returned after processing a restore request.
+    Returned as JSON alongside the restored image file.
     """
 
     status: str = "completed"
-    """Request completion state: 'completed', 'pending', or 'failed'."""
+    """Request completion state: 'completed' or 'failed'."""
 
     decision: str = "good"
     """Quality decision: 'good', 'review', or 'out_of_range'."""
 
+    metrics: Metrics
+    """Inference performance."""
+
     input_analysis: InputAnalysis
     """Analysis of the input image."""
 
-    model_info: ModelInfo
+    issues: list[str] = []
+    """Any issues encountered during processing."""
+
+    model_info: ModelInfo = ModelInfo()
     """Information about the model used."""
+
+
+class HealthResponse(BaseModel):
+    """Response for the /health endpoint."""
+
+    status: str
+    """Service status: 'healthy' or 'unhealthy'."""
+
+    model_loaded: bool
+    """Whether the model is loaded and ready."""
+
+    version: str = "0.1.0"
