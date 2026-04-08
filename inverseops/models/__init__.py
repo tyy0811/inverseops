@@ -47,8 +47,10 @@ def __getattr__(name: str):
 
 # Register built-in models (lazy — imported only when build_model is called)
 def _register_builtins() -> None:
+    from inverseops.models.nafnet import get_trainable_nafnet
     from inverseops.models.swinir import get_trainable_swinir
     register_model("swinir", get_trainable_swinir)
+    register_model("nafnet", get_trainable_nafnet)
 
 
 _register_builtins()
