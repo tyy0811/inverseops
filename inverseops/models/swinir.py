@@ -198,33 +198,22 @@ class SwinIRBaseline:
         return Image.fromarray(output_arr, mode="L")
 
 
-def get_trainable_swinir(
-    noise_level: int = 25,
-    pretrained: bool = True,
-    device: str | None = None,
-    cache_dir: Path | str | None = None,
-) -> SwinIR:
-    """Return trainable SwinIR model for grayscale denoising.
+# SR pretrained weight URLs (classical variant, grayscale)
+SR_MODEL_URLS: dict[int, str] = {
+    2: (
+        "https://github.com/JingyunLiang/SwinIR/releases/download/"
+        "v0.0/001_classicalSR_DF2K_s64w8_SwinIR-M_x2.pth"
+    ),
+    4: (
+        "https://github.com/JingyunLiang/SwinIR/releases/download/"
+        "v0.0/001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth"
+    ),
+}
 
-    Args:
-        noise_level: Target noise level (15, 25, or 50).
-        pretrained: If True, load pretrained weights.
-        device: Device to place model on. None for auto.
-        cache_dir: Directory for cached weights.
 
-    Returns:
-        SwinIR nn.Module in training mode.
-    """
-    if noise_level not in MODEL_URLS:
-        raise ValueError(f"noise_level must be 15, 25, or 50, got {noise_level}")
-
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    cache_dir = Path(cache_dir) if cache_dir else DEFAULT_CACHE_DIR
-
-    # Build model with grayscale denoising architecture
-    model = SwinIR(
+def _build_denoise_config() -> dict:
+    """Return SwinIR constructor kwargs for grayscale denoising."""
+    return dict(
         upscale=1,
         in_chans=1,
         img_size=128,
@@ -238,19 +227,85 @@ def get_trainable_swinir(
         resi_connection="1conv",
     )
 
-    if pretrained:
+
+def _build_sr_config(scale: int) -> dict:
+    """Return SwinIR constructor kwargs for classical SR."""
+    return dict(
+        upscale=scale,
+        in_chans=1,
+        img_size=64,
+        window_size=8,
+        img_range=1.0,
+        depths=[6, 6, 6, 6, 6, 6],
+        embed_dim=180,
+        num_heads=[6, 6, 6, 6, 6, 6],
+        mlp_ratio=2,
+        upsampler="pixelshuffle",
+        resi_connection="1conv",
+    )
+
+
+def get_trainable_swinir(
+    task: str = "denoise",
+    scale: int = 1,
+    noise_level: int = 25,
+    pretrained: bool = True,
+    device: str | None = None,
+    cache_dir: Path | str | None = None,
+    **kwargs,
+) -> SwinIR:
+    """Return trainable SwinIR model.
+
+    Args:
+        task: 'denoise' or 'sr'.
+        scale: Upscaling factor for SR (2 or 4). Ignored for denoise.
+        noise_level: Target noise level for denoising (15, 25, or 50).
+        pretrained: If True, load pretrained weights.
+        device: Device to place model on. None for auto.
+        cache_dir: Directory for cached weights.
+
+    Returns:
+        SwinIR nn.Module in training mode.
+    """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    cache_dir = Path(cache_dir) if cache_dir else DEFAULT_CACHE_DIR
+
+    if task == "denoise":
+        model_config = _build_denoise_config()
+        weight_url = MODEL_URLS.get(noise_level)
+        if noise_level not in MODEL_URLS:
+            raise ValueError(
+                f"noise_level must be 15, 25, or 50, got {noise_level}"
+            )
+    elif task == "sr":
+        model_config = _build_sr_config(scale)
+        weight_url = SR_MODEL_URLS.get(scale)
+        if scale not in SR_MODEL_URLS:
+            raise ValueError(f"SR scale must be 2 or 4, got {scale}")
+    else:
+        raise ValueError(
+            f"Unknown task: {task!r}. Must be 'denoise' or 'sr'."
+        )
+
+    model = SwinIR(**model_config)
+
+    if pretrained and weight_url:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        url = MODEL_URLS[noise_level]
-        filename = Path(url).name
+        filename = Path(weight_url).name
         weight_path = cache_dir / filename
 
         if not weight_path.exists():
             import urllib.request
-            print(f"Downloading SwinIR weights from {url}...")
-            urllib.request.urlretrieve(url, weight_path)
+
+            print(f"Downloading SwinIR weights from {weight_url}...")
+            urllib.request.urlretrieve(weight_url, weight_path)
             print(f"Saved to {weight_path}")
 
-        state_dict = torch.load(weight_path, map_location=device, weights_only=True)
+        state_dict = torch.load(
+            weight_path, map_location=device, weights_only=True
+        )
         state_dict = state_dict.get("params", state_dict)
         model.load_state_dict(state_dict, strict=True)
 
