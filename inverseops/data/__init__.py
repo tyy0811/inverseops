@@ -10,7 +10,7 @@ from inverseops.data.degradations import (
     generate_noisy_variants,
 )
 from inverseops.data.microscopy import MicroscopyDataset
-from inverseops.data.torch_datasets import MicroscopyTrainDataset
+from inverseops.data.torch_datasets import MicroscopyTrainDataset, RealNoiseTrainDataset
 from inverseops.data.transforms import center_crop, normalize_to_uint8, to_grayscale
 
 __all__ = [
@@ -28,6 +28,7 @@ __all__ = [
 
 DATASET_REGISTRY: dict[str, type] = {
     "synthetic": MicroscopyTrainDataset,
+    "real": RealNoiseTrainDataset,
 }
 
 

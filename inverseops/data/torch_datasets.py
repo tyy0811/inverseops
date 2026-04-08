@@ -126,3 +126,94 @@ class MicroscopyTrainDataset(Dataset):
         noise = rng.normal(0, sigma_normalized, arr.shape).astype(np.float32)
         noisy = arr + noise
         return np.clip(noisy, 0, 1).astype(np.float32)
+
+
+class RealNoiseTrainDataset(Dataset):
+    """Torch Dataset wrapper for real-noise microscopy training.
+
+    Wraps RealNoiseMicroscopyDataset with tensor conversion and patch cropping.
+    Returns the same dict format as MicroscopyTrainDataset: {input, target, ...}.
+    """
+
+    def __init__(
+        self,
+        base_dataset,
+        patch_size: int = 128,
+        seed: int = 42,
+        training: bool = True,
+    ) -> None:
+        self.base_dataset = base_dataset
+        self.patch_size = patch_size
+        self.seed = seed
+        self.training = training
+        self._rng = np.random.default_rng(seed)
+
+    def __len__(self) -> int:
+        return len(self.base_dataset)
+
+    def __getitem__(self, index: int) -> dict:
+        noisy_pil, clean_pil = self.base_dataset.load_pair(index)
+        pair = self.base_dataset.pairs[index]
+
+        noisy_arr = np.array(noisy_pil, dtype=np.float32) / 255.0
+        clean_arr = np.array(clean_pil, dtype=np.float32) / 255.0
+
+        if self.training:
+            noisy_crop, clean_crop = self._random_crop_pair(noisy_arr, clean_arr)
+        else:
+            noisy_crop, clean_crop = self._center_crop_pair(noisy_arr, clean_arr)
+
+        input_tensor = torch.from_numpy(noisy_crop).unsqueeze(0)
+        target = torch.from_numpy(clean_crop).unsqueeze(0)
+
+        return {
+            "input": input_tensor,
+            "target": target,
+            "sigma": -1,  # Unknown sigma for real noise
+            "image_name": pair.capture_name,
+        }
+
+    def _random_crop_pair(
+        self, a: np.ndarray, b: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Random crop both arrays at the same position."""
+        h, w = a.shape
+        ps = self.patch_size
+        if h < ps or w < ps:
+            a = self._pad_to_size(a, ps)
+            b = self._pad_to_size(b, ps)
+            h, w = a.shape
+
+        top = self._rng.integers(0, h - ps + 1)
+        left = self._rng.integers(0, w - ps + 1)
+        return (
+            a[top : top + ps, left : left + ps],
+            b[top : top + ps, left : left + ps],
+        )
+
+    def _center_crop_pair(
+        self, a: np.ndarray, b: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Center crop both arrays at the same position."""
+        h, w = a.shape
+        ps = self.patch_size
+        if h < ps or w < ps:
+            a = self._pad_to_size(a, ps)
+            b = self._pad_to_size(b, ps)
+            h, w = a.shape
+
+        top = (h - ps) // 2
+        left = (w - ps) // 2
+        return (
+            a[top : top + ps, left : left + ps],
+            b[top : top + ps, left : left + ps],
+        )
+
+    def _pad_to_size(self, arr: np.ndarray, size: int) -> np.ndarray:
+        """Pad array to at least size x size using reflection."""
+        h, w = arr.shape
+        pad_h = max(0, size - h)
+        pad_w = max(0, size - w)
+        if pad_h > 0 or pad_w > 0:
+            arr = np.pad(arr, ((0, pad_h), (0, pad_w)), mode="reflect")
+        return arr
