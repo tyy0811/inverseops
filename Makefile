@@ -1,4 +1,4 @@
-.PHONY: install test lint train eval serve samples bench docker onnx \
+.PHONY: install test lint train eval serve samples bench docker docker-monitoring onnx \
 	train-smoke train-short train-day5 compare-sigma50 compare-full
 
 PYTHON     ?= python3.11
@@ -40,6 +40,9 @@ bench:
 
 docker:
 	docker-compose -f docker/docker-compose.yaml up --build
+
+docker-monitoring:
+	docker-compose -f docker/docker-compose.yaml --profile monitoring up --build
 
 onnx:
 	$(PYTHON) scripts/run_onnx_export.py
