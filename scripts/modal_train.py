@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
-"""Modal GPU training for InverseOps SwinIR fine-tuning.
+"""Modal GPU training for InverseOps models.
 
 Prerequisites:
     pip install modal
     modal setup          # one-time auth
+    modal secret create wandb-api-key WANDB_API_KEY=<key>  # optional, for W&B
 
 Usage:
-    # Run training on T4 GPU (run from project root)
+    # Default SwinIR denoising
     modal run scripts/modal_train.py
+
+    # NAFNet denoising
+    modal run scripts/modal_train.py --config configs/denoise_nafnet_sigma25.yaml
+
+    # SwinIR SR 2x
+    modal run scripts/modal_train.py --config configs/sr_swinir_2x.yaml
+
+    # With W&B logging
+    modal run scripts/modal_train.py --wandb
 
     # Custom training args
     modal run scripts/modal_train.py --epochs 50 --batch-size 8
@@ -37,14 +47,32 @@ vol = modal.Volume.from_name("inverseops-vol", create_if_missing=True)
 # Image: deps + pretrained weights + data — all baked in, local-disk fast
 # ---------------------------------------------------------------------------
 
-SWINIR_WEIGHTS_URL = (
-    "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/"
-    "004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth"
-)
 WEIGHTS_DIR = "/cache/inverseops/models"
 DATA_DIR = "/data/fmd"
 
-# 1) Install Python deps + download pretrained weights
+# All pretrained weight URLs — baked into image at build time
+PRETRAINED_URLS = [
+    # SwinIR denoising (sigma 15, 25, 50)
+    "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/004_grayDN_DFWB_s128w8_SwinIR-M_noise15.pth",
+    "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth",
+    "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/004_grayDN_DFWB_s128w8_SwinIR-M_noise50.pth",
+    # SwinIR SR (2x, 4x)
+    "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DF2K_s64w8_SwinIR-M_x2.pth",
+    "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth",
+    # NAFNet SIDD denoising
+    "https://github.com/megvii-research/NAFNet/releases/download/v0.0.0/NAFNet-SIDD-width32.pth",
+]
+
+# 1) Install Python deps + download all pretrained weights
+_download_cmds = [f"mkdir -p {WEIGHTS_DIR}"] + [
+    (
+        f"python -c \"import urllib.request; "
+        f"urllib.request.urlretrieve('{url}', "
+        f"'{WEIGHTS_DIR}/{url.split('/')[-1]}')\""
+    )
+    for url in PRETRAINED_URLS
+]
+
 base_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
@@ -55,17 +83,9 @@ base_image = (
         "pydantic>=2.0",
         "pyyaml>=6.0",
         "wandb>=0.15",
+        "structlog>=23.0",
     )
-    .run_commands(
-        f"mkdir -p {WEIGHTS_DIR}",
-        (
-            f"python -c \"import urllib.request; "
-            f"urllib.request.urlretrieve("
-            f"'{SWINIR_WEIGHTS_URL}', "
-            f"'{WEIGHTS_DIR}/"
-            f"004_grayDN_DFWB_s128w8_SwinIR-M_noise25.pth')\""
-        ),
-    )
+    .run_commands(*_download_cmds)
 )
 
 # 2) Add fmd.zip and extract into image (cached after first build)
@@ -103,16 +123,29 @@ train_image = data_image.add_local_dir(
     image=train_image,
     gpu="A100",  # 40GB; use "A100-80GB" for larger batch sizes if available
     volumes={"/vol": vol},      # only for saving outputs
+    secrets=[modal.Secret.from_name("wandb-api-key", required=False)],
     timeout=86400,              # 24 hours
 )
 def train(
+    config_path: str = "configs/denoise_swinir.yaml",
     epochs: int = 100,
     batch_size: int = 4,
     limit_train: int = 0,
     limit_val: int = 0,
     resume: bool = False,
+    wandb: bool = False,
 ):
-    """Run SwinIR fine-tuning on a Modal GPU."""
+    """Run training on a Modal GPU.
+
+    Args:
+        config_path: Path to config YAML (relative to project root).
+        epochs: Number of training epochs.
+        batch_size: Training batch size.
+        limit_train: Limit training samples (0 = no limit).
+        limit_val: Limit validation samples (0 = no limit).
+        resume: Resume from last checkpoint.
+        wandb: Enable W&B logging (requires wandb-api-key secret).
+    """
     import json
     import subprocess
     import sys
@@ -122,13 +155,12 @@ def train(
     # ------------------------------------------------------------------
     # Patch config for Modal paths (data is on local disk in the image)
     # ------------------------------------------------------------------
-    with open("/app/configs/denoise_swinir.yaml") as f:
+    with open(f"/app/{config_path}") as f:
         config = yaml.safe_load(f)
 
     config["data"]["train_root"] = DATA_DIR
     config["data"]["val_root"] = DATA_DIR
     config["data"]["num_workers"] = 0
-    config["training"]["amp"] = False              # avoid fp16 NaN on T4
     config["output_dir"] = "/vol/outputs/training"
 
     modal_config = Path("/tmp/modal_config.yaml")
@@ -138,10 +170,11 @@ def train(
     # ------------------------------------------------------------------
     # Run training
     # ------------------------------------------------------------------
+    wandb_flag = "--wandb" if wandb else "--no-wandb"
     cmd = [
         sys.executable, "/app/scripts/run_training.py",
         "--config", str(modal_config),
-        "--no-wandb",
+        wandb_flag,
         "--preload",
         "--epochs", str(epochs),
         "--batch-size", str(batch_size),
@@ -166,7 +199,9 @@ def train(
         "INVERSEOPS_CACHE": "/cache/inverseops",
     }
 
+    print(f"Config: {config_path}")
     print(f"Training: {epochs} epochs, batch_size={batch_size}, gpu=A100")
+    print(f"W&B: {'enabled' if wandb else 'disabled'}")
     print(f"Data: {DATA_DIR} (baked into image)")
     print("=" * 60)
     result = subprocess.run(cmd, env=env)
@@ -334,24 +369,31 @@ def generate_examples(sigma: int = 50):
 
 @app.local_entrypoint()
 def main(
+    config: str = "configs/denoise_swinir.yaml",
     epochs: int = 100,
     batch_size: int = 4,
     limit_train: int = 0,
     limit_val: int = 0,
     resume: bool = False,
+    wandb: bool = False,
 ):
-    """Train SwinIR on a Modal GPU."""
+    """Train on a Modal GPU with any config."""
+    print(f"Config: {config}")
     print(f"Training: {epochs} epochs, batch_size={batch_size}")
     if limit_train > 0:
         print(f"  limit_train={limit_train}, limit_val={limit_val}")
     if resume:
         print("  Resuming from last checkpoint")
+    if wandb:
+        print("  W&B logging enabled")
     train.remote(
+        config_path=config,
         epochs=epochs,
         batch_size=batch_size,
         limit_train=limit_train,
         limit_val=limit_val,
         resume=resume,
+        wandb=wandb,
     )
 
     print("\n" + "=" * 60)
