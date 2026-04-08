@@ -146,6 +146,11 @@ def create_app(models=None) -> FastAPI:
             lifespan=lifespan,
         )
 
+    from inverseops.serving.logging import RequestIDMiddleware, configure_logging
+
+    configure_logging()
+    application.add_middleware(RequestIDMiddleware)
+
     _register_routes(application)
     return application
 
