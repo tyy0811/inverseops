@@ -21,9 +21,10 @@ import yaml
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Subset
 
+from inverseops.config import validate_config
 from inverseops.data.microscopy import MicroscopyDataset
 from inverseops.data.torch_datasets import MicroscopyTrainDataset
-from inverseops.models.swinir import get_trainable_swinir
+from inverseops.models import build_model
 from inverseops.tracking.experiment import (
     finish_run,
     init_wandb,
@@ -56,8 +57,12 @@ def load_config(config_path: Path) -> dict:
     config["data"].setdefault("num_workers", 0)
     config["data"].setdefault("patch_size", 128)
     config["data"].setdefault("sigmas", [15, 25, 50])
+    config["data"].setdefault("noise_source", "synthetic")
+
+    config.setdefault("task", "denoise")
 
     config.setdefault("model", {})
+    config["model"].setdefault("name", "swinir")
     config["model"].setdefault("pretrained", True)
     config["model"].setdefault("noise_level", 25)
 
@@ -90,42 +95,73 @@ def build_dataloaders(
     """Build train and validation DataLoaders."""
     data_cfg = config["data"]
     seed = config["seed"]
+    noise_source = data_cfg.get("noise_source", "synthetic")
 
-    # Build train dataset
-    train_base = MicroscopyDataset(
-        root_dir=data_cfg["train_root"],
-        split="train",
-        seed=seed,
-    )
-    train_base.prepare()
-    if preload:
-        train_base.preload()
+    if noise_source == "real":
+        from inverseops.data.microscopy_real import RealNoiseMicroscopyDataset
 
-    train_dataset = MicroscopyTrainDataset(
-        base_dataset=train_base,
-        patch_size=data_cfg["patch_size"],
-        sigmas=tuple(data_cfg["sigmas"]),
-        seed=seed,
-        training=True,
-    )
+        from inverseops.data.torch_datasets import RealNoiseTrainDataset
 
-    # Build validation dataset
-    val_base = MicroscopyDataset(
-        root_dir=data_cfg["val_root"],
-        split="val",
-        seed=seed,
-    )
-    val_base.prepare()
-    if preload:
-        val_base.preload()
+        train_base = RealNoiseMicroscopyDataset(
+            root_dir=data_cfg["train_root"],
+            split="train",
+            seed=seed,
+        )
+        train_base.prepare()
+        train_dataset = RealNoiseTrainDataset(
+            base_dataset=train_base,
+            patch_size=data_cfg["patch_size"],
+            seed=seed,
+            training=True,
+        )
 
-    val_dataset = MicroscopyTrainDataset(
-        base_dataset=val_base,
-        patch_size=data_cfg["patch_size"],
-        sigmas=tuple(data_cfg["sigmas"]),
-        seed=seed,
-        training=False,
-    )
+        val_base = RealNoiseMicroscopyDataset(
+            root_dir=data_cfg["val_root"],
+            split="val",
+            seed=seed,
+        )
+        val_base.prepare()
+        val_dataset = RealNoiseTrainDataset(
+            base_dataset=val_base,
+            patch_size=data_cfg["patch_size"],
+            seed=seed,
+            training=False,
+        )
+    else:
+        # Existing synthetic pipeline
+        train_base = MicroscopyDataset(
+            root_dir=data_cfg["train_root"],
+            split="train",
+            seed=seed,
+        )
+        train_base.prepare()
+        if preload:
+            train_base.preload()
+
+        train_dataset = MicroscopyTrainDataset(
+            base_dataset=train_base,
+            patch_size=data_cfg["patch_size"],
+            sigmas=tuple(data_cfg.get("sigmas", [15, 25, 50])),
+            seed=seed,
+            training=True,
+        )
+
+        val_base = MicroscopyDataset(
+            root_dir=data_cfg["val_root"],
+            split="val",
+            seed=seed,
+        )
+        val_base.prepare()
+        if preload:
+            val_base.preload()
+
+        val_dataset = MicroscopyTrainDataset(
+            base_dataset=val_base,
+            patch_size=data_cfg["patch_size"],
+            sigmas=tuple(data_cfg.get("sigmas", [15, 25, 50])),
+            seed=seed,
+            training=False,
+        )
 
     # Apply sample limits
     limit_train = data_cfg.get("limit_train_samples")
@@ -260,8 +296,12 @@ def main() -> int:
     elif args.no_wandb:
         config["tracking"]["enabled"] = False
 
-    # Default run name
-    run_name = args.run_name or "swinir_fmd_denoise_sigma15_25_50_v1"
+    # Run name: CLI > config > default
+    run_name = (
+        args.run_name
+        or config["tracking"].get("run_name")
+        or "swinir_fmd_denoise_sigma15_25_50_v1"
+    )
     if args.epochs is not None:
         config["training"]["epochs"] = args.epochs
         config["scheduler"]["t_max"] = args.epochs
@@ -273,6 +313,13 @@ def main() -> int:
         config["data"]["limit_val_samples"] = args.limit_val_samples
     if args.batch_size is not None:
         config["data"]["batch_size"] = args.batch_size
+
+    # Validate config before any side effects
+    try:
+        validate_config(config)
+    except ValueError as e:
+        print(f"Config validation error: {e}")
+        return 1
 
     output_dir = Path(config["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -294,12 +341,7 @@ def main() -> int:
 
     # Build model
     print("\nBuilding model...")
-    model_cfg = config["model"]
-    model = get_trainable_swinir(
-        noise_level=model_cfg["noise_level"],
-        pretrained=model_cfg["pretrained"],
-        device=device,
-    )
+    model = build_model(config, device=device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     # Build optimizer
@@ -346,11 +388,13 @@ def main() -> int:
     # Initialize W&B
     wandb_enabled = config["tracking"]["enabled"]
     wandb_project = config["tracking"]["wandb_project"]
+    tags = config["tracking"].get("tags")
     init_wandb(
         config=config,
         enabled=wandb_enabled,
         project=wandb_project,
         run_name=run_name,
+        tags=tags,
     )
 
     # Create trainer
