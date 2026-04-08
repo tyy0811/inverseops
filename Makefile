@@ -1,4 +1,5 @@
-.PHONY: install test lint train eval serve samples bench docker docker-monitoring onnx \
+.PHONY: install test lint train eval serve samples bench docker docker-monitoring \
+	docker-train-build docker-train-smoke onnx \
 	train-smoke train-short train-day5 compare-sigma50 compare-full
 
 PYTHON     ?= python3.11
@@ -43,6 +44,22 @@ docker:
 
 docker-monitoring:
 	docker-compose -f docker/docker-compose.yaml --profile monitoring up --build
+
+docker-train-build:
+	docker build -f docker/Dockerfile.train -t inverseops-train .
+
+docker-train-smoke:
+	docker run --gpus all \
+		-v $(PWD)/data:/data:ro \
+		-v $(PWD)/outputs/docker_smoke:/outputs \
+		inverseops-train \
+		--config configs/denoise_swinir.yaml \
+		--epochs 1 \
+		--limit-train-samples 4 \
+		--limit-val-samples 2 \
+		--batch-size 1 \
+		--no-wandb \
+		--output-dir /outputs
 
 onnx:
 	$(PYTHON) scripts/run_onnx_export.py

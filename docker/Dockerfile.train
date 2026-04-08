@@ -1,0 +1,37 @@
+# docker/Dockerfile.train
+# GPU training container for InverseOps
+# CUDA version pinned to match Modal's runtime
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3-pip \
+    libjpeg62-turbo-dev libpng-dev libtiff-dev \
+    curl git \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf python3.11 /usr/bin/python3 \
+    && ln -sf python3.11 /usr/bin/python
+
+# PyTorch with CUDA 12.1 support
+RUN pip install --no-cache-dir \
+    torch>=2.0 --index-url https://download.pytorch.org/whl/cu121
+
+# Project dependencies (cached layer)
+COPY pyproject.toml README.md ./
+RUN mkdir -p inverseops && touch inverseops/__init__.py \
+    && pip install --no-cache-dir ".[dev]" \
+    && rm -rf inverseops
+
+# Copy application code
+COPY inverseops/ inverseops/
+COPY scripts/ scripts/
+COPY configs/ configs/
+RUN pip install --no-cache-dir --no-deps .
+
+# Data and output mount points
+VOLUME ["/data", "/outputs"]
+
+ENTRYPOINT ["python", "scripts/run_training.py"]
+CMD ["--config", "configs/denoise_swinir.yaml", "--output-dir", "/outputs"]
