@@ -23,6 +23,7 @@ def build_model(config: dict, device: str = "cpu") -> nn.Module:
 
     Config must have config["model"]["name"] matching a registered key.
     Additional keys in config["model"] are passed as kwargs to the factory.
+    Top-level task and data.scale are threaded through automatically.
     """
     model_cfg = config.get("model", {})
     name = model_cfg.get("name", "")
@@ -34,6 +35,11 @@ def build_model(config: dict, device: str = "cpu") -> nn.Module:
     # Pass model config kwargs (excluding 'name') to the factory
     kwargs: dict[str, Any] = {k: v for k, v in model_cfg.items() if k != "name"}
     kwargs.setdefault("device", device)
+    # Thread top-level task and data.scale into model construction
+    kwargs.setdefault("task", config.get("task", "denoise"))
+    data_scale = config.get("data", {}).get("scale")
+    if data_scale is not None:
+        kwargs.setdefault("scale", data_scale)
     return factory(**kwargs)
 
 

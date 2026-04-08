@@ -28,6 +28,35 @@ _cache_base = Path(
 DEFAULT_CACHE_DIR = _cache_base / "models"
 
 
+def _adapt_rgb_to_grayscale(state_dict: dict, model: NAFNet) -> dict:
+    """Adapt RGB pretrained weights to a 1-channel model.
+
+    The official NAFNet-SIDD checkpoint is trained on 3-channel RGB images.
+    For grayscale (img_channel=1), we average the input conv weights across
+    the channel dimension and sum the output conv weights.
+    """
+    model_sd = model.state_dict()
+    adapted = {}
+    for k, v in state_dict.items():
+        if k not in model_sd:
+            continue
+        expected_shape = model_sd[k].shape
+        if v.shape == expected_shape:
+            adapted[k] = v
+        elif k == "intro.weight" and v.shape[1] == 3 and expected_shape[1] == 1:
+            # Input conv: [out, 3, kh, kw] -> [out, 1, kh, kw]
+            adapted[k] = v.mean(dim=1, keepdim=True)
+        elif k == "ending.weight" and v.shape[0] == 3 and expected_shape[0] == 1:
+            # Output conv: [3, in, kh, kw] -> [1, in, kh, kw]
+            adapted[k] = v.sum(dim=0, keepdim=True) / 3.0
+        elif k == "ending.bias" and v.shape[0] == 3 and expected_shape[0] == 1:
+            # Output bias: [3] -> [1]
+            adapted[k] = v.mean(dim=0, keepdim=True)
+        else:
+            adapted[k] = v
+    return adapted
+
+
 class NAFNetBaseline:
     """Wrapper for NAFNet grayscale denoising model.
 
@@ -87,6 +116,8 @@ class NAFNetBaseline:
         else:
             state_dict = pretrained
 
+        # Adapt RGB weights to grayscale if needed
+        state_dict = _adapt_rgb_to_grayscale(state_dict, model)
         model.load_state_dict(state_dict, strict=True)
         model.eval()
         model.to(self.device)
@@ -179,6 +210,8 @@ def get_trainable_nafnet(
             state_dict = state_dict["params"]
         elif "state_dict" in state_dict:
             state_dict = state_dict["state_dict"]
+        # Adapt RGB weights to grayscale if needed
+        state_dict = _adapt_rgb_to_grayscale(state_dict, model)
         model.load_state_dict(state_dict, strict=True)
 
     model.train()

@@ -399,3 +399,30 @@ class TestBicubicDownsample:
         img = create_test_image(size=(128, 128))
         result = bicubic_downsample(img, scale=2)
         assert result.mode == "L"
+
+
+class TestSRTrainDataset:
+
+    def test_sr_dataset_output_shapes(self):
+        """SR dataset returns LR input and HR target with correct shapes."""
+        import tempfile
+
+        import torch
+
+        from inverseops.data.microscopy import MicroscopyDataset
+        from inverseops.data.torch_datasets import SRTrainDataset
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            create_test_dataset(tmp_path, num_images=5)
+            base = MicroscopyDataset(root_dir=tmp_path, split="train")
+            base.prepare()
+
+            ds = SRTrainDataset(
+                base_dataset=base, patch_size=64, scale=2, training=False
+            )
+            item = ds[0]
+            # LR: 64/2 = 32, HR: 64
+            assert item["input"].shape == (1, 32, 32)
+            assert item["target"].shape == (1, 64, 64)
+            assert item["input"].dtype == torch.float32

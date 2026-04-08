@@ -95,11 +95,49 @@ def build_dataloaders(
     """Build train and validation DataLoaders."""
     data_cfg = config["data"]
     seed = config["seed"]
+    task = config.get("task", "denoise")
     noise_source = data_cfg.get("noise_source", "synthetic")
 
-    if noise_source == "real":
-        from inverseops.data.microscopy_real import RealNoiseMicroscopyDataset
+    if task == "sr":
+        # SR uses same clean images but creates LR/HR pairs via bicubic
+        scale = data_cfg.get("scale", 2)
+        train_base = MicroscopyDataset(
+            root_dir=data_cfg["train_root"],
+            split="train",
+            seed=seed,
+        )
+        train_base.prepare()
+        if preload:
+            train_base.preload()
 
+        from inverseops.data.torch_datasets import SRTrainDataset
+
+        train_dataset = SRTrainDataset(
+            base_dataset=train_base,
+            patch_size=data_cfg["patch_size"],
+            scale=scale,
+            seed=seed,
+            training=True,
+        )
+
+        val_base = MicroscopyDataset(
+            root_dir=data_cfg["val_root"],
+            split="val",
+            seed=seed,
+        )
+        val_base.prepare()
+        if preload:
+            val_base.preload()
+
+        val_dataset = SRTrainDataset(
+            base_dataset=val_base,
+            patch_size=data_cfg["patch_size"],
+            scale=scale,
+            seed=seed,
+            training=False,
+        )
+    elif noise_source == "real":
+        from inverseops.data.microscopy_real import RealNoiseMicroscopyDataset
         from inverseops.data.torch_datasets import RealNoiseTrainDataset
 
         train_base = RealNoiseMicroscopyDataset(

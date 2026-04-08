@@ -217,3 +217,90 @@ class RealNoiseTrainDataset(Dataset):
         if pad_h > 0 or pad_w > 0:
             arr = np.pad(arr, ((0, pad_h), (0, pad_w)), mode="reflect")
         return arr
+
+
+class SRTrainDataset(Dataset):
+    """Torch Dataset wrapper for super-resolution training.
+
+    Creates LR/HR pairs by bicubic downsampling clean images.
+    LR input has shape [1, patch_size//scale, patch_size//scale],
+    HR target has shape [1, patch_size, patch_size].
+    """
+
+    def __init__(
+        self,
+        base_dataset: MicroscopyDataset,
+        patch_size: int = 128,
+        scale: int = 2,
+        seed: int = 42,
+        training: bool = True,
+    ) -> None:
+        self.base_dataset = base_dataset
+        self.patch_size = patch_size
+        self.scale = scale
+        self.seed = seed
+        self.training = training
+        self._rng = np.random.default_rng(seed)
+
+    def __len__(self) -> int:
+        return len(self.base_dataset)
+
+    def __getitem__(self, index: int) -> dict:
+        from PIL import Image as PILImage
+
+        clean_pil = self.base_dataset.load_image(index)
+        image_name = self.base_dataset.image_path(index).name
+
+        clean_arr = np.array(clean_pil, dtype=np.float32) / 255.0
+
+        # Crop HR patch
+        if self.training:
+            hr_crop = self._random_crop(clean_arr)
+        else:
+            hr_crop = self._center_crop(clean_arr)
+
+        # Create LR via bicubic downsampling
+        hr_pil = PILImage.fromarray(
+            (hr_crop * 255).astype(np.uint8), mode="L"
+        )
+        lr_size = self.patch_size // self.scale
+        lr_pil = hr_pil.resize((lr_size, lr_size), PILImage.BICUBIC)
+        lr_arr = np.array(lr_pil, dtype=np.float32) / 255.0
+
+        input_tensor = torch.from_numpy(lr_arr).unsqueeze(0)
+        target = torch.from_numpy(hr_crop).unsqueeze(0)
+
+        return {
+            "input": input_tensor,
+            "target": target,
+            "sigma": 0,
+            "image_name": image_name,
+        }
+
+    def _random_crop(self, arr: np.ndarray) -> np.ndarray:
+        h, w = arr.shape
+        ps = self.patch_size
+        if h < ps or w < ps:
+            arr = self._pad_to_size(arr, ps)
+            h, w = arr.shape
+        top = self._rng.integers(0, h - ps + 1)
+        left = self._rng.integers(0, w - ps + 1)
+        return arr[top : top + ps, left : left + ps]
+
+    def _center_crop(self, arr: np.ndarray) -> np.ndarray:
+        h, w = arr.shape
+        ps = self.patch_size
+        if h < ps or w < ps:
+            arr = self._pad_to_size(arr, ps)
+            h, w = arr.shape
+        top = (h - ps) // 2
+        left = (w - ps) // 2
+        return arr[top : top + ps, left : left + ps]
+
+    def _pad_to_size(self, arr: np.ndarray, size: int) -> np.ndarray:
+        h, w = arr.shape
+        pad_h = max(0, size - h)
+        pad_w = max(0, size - w)
+        if pad_h > 0 or pad_w > 0:
+            arr = np.pad(arr, ((0, pad_h), (0, pad_w)), mode="reflect")
+        return arr

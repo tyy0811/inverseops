@@ -41,3 +41,20 @@ def test_denoise_mode_unchanged():
     with torch.no_grad():
         y = model(x)
     assert y.shape == (1, 1, 64, 64)
+
+
+def test_build_model_threads_task_sr():
+    """build_model with task=sr creates an SR model, not denoising."""
+    from inverseops.models import build_model
+
+    config = {
+        "task": "sr",
+        "model": {"name": "swinir", "pretrained": False},
+        "data": {"scale": 2},
+    }
+    model = build_model(config, device="cpu")
+    x = torch.randn(1, 1, 32, 32)
+    with torch.no_grad():
+        y = model(x)
+    # SR 2x: 32x32 -> 64x64
+    assert y.shape == (1, 1, 64, 64)
