@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # PyTorch with CUDA 12.1 support
 RUN pip install --no-cache-dir \
-    torch>=2.0 --index-url https://download.pytorch.org/whl/cu121
+    'torch>=2.0' --index-url https://download.pytorch.org/whl/cu121
 
 # Project dependencies (cached layer)
 COPY pyproject.toml README.md ./

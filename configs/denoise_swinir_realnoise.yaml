@@ -1,9 +1,14 @@
+# Real-noise denoising with FMD Confocal_FISH data.
+# Expects FMD directory structure under train_root/val_root:
+#   {root}/raw/{specimen_id}/capture_*.png   (noisy captures)
+#   {root}/gt/{specimen_id}/avg50.png         (averaged ground truth)
+# Adjust paths to match your local FMD extraction.
 seed: 42
 task: denoise
 
 data:
-  train_root: data/raw/fmd/fmd/Confocal_FISH
-  val_root: data/raw/fmd/fmd/Confocal_FISH
+  train_root: data/raw/fmd/Confocal_FISH
+  val_root: data/raw/fmd/Confocal_FISH
   noise_source: real
   batch_size: 4
   num_workers: 2

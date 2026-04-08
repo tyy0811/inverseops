@@ -12,6 +12,12 @@ VALID_TASKS = {"denoise", "sr"}
 VALID_LOSSES = {"l1"}
 VALID_NOISE_SOURCES = {"synthetic", "real"}
 
+# Which tasks each model supports
+MODEL_TASK_SUPPORT: dict[str, set[str]] = {
+    "swinir": {"denoise", "sr"},
+    "nafnet": {"denoise"},
+}
+
 
 def validate_config(config: dict) -> None:
     """Validate a training config dict. Raises ValueError on invalid config."""
@@ -28,6 +34,14 @@ def validate_config(config: dict) -> None:
         raise ValueError(
             f"Unknown model: {model_name!r}. "
             f"Available: {sorted(MODEL_REGISTRY.keys())}"
+        )
+
+    # Model-task compatibility
+    supported_tasks = MODEL_TASK_SUPPORT.get(model_name, VALID_TASKS)
+    if task not in supported_tasks:
+        raise ValueError(
+            f"Model {model_name!r} does not support task {task!r}. "
+            f"Supported tasks: {sorted(supported_tasks)}"
         )
 
     # Data roots

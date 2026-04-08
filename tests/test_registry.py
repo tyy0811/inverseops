@@ -72,3 +72,16 @@ def test_validate_config_bad_task():
     }
     with pytest.raises(ValueError, match="Unknown task"):
         validate_config(config)
+
+
+def test_validate_config_incompatible_model_task():
+    """NAFNet + SR task raises ValueError."""
+    config = {
+        "task": "sr",
+        "model": {"name": "nafnet"},
+        "data": {"train_root": "/tmp", "val_root": "/tmp"},
+        "training": {},
+        "output_dir": "/tmp",
+    }
+    with pytest.raises(ValueError, match="does not support task"):
+        validate_config(config)
