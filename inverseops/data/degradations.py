@@ -76,3 +76,20 @@ def generate_noisy_variants(
         variant_seed = seed + i
         variants[sigma] = add_gaussian_noise(image, sigma, seed=variant_seed)
     return variants
+
+
+def bicubic_downsample(image: Image.Image, scale: int) -> Image.Image:
+    """Downsample an image by a given scale factor using bicubic interpolation.
+
+    This is the standard SR benchmarking degradation. Note: bicubic downsampling
+    does not model real microscopy acquisition (see tradeoffs.md).
+
+    Args:
+        image: Input PIL image.
+        scale: Downsampling factor (2, 3, or 4).
+
+    Returns:
+        Downsampled PIL image.
+    """
+    w, h = image.size
+    return image.resize((w // scale, h // scale), Image.BICUBIC)

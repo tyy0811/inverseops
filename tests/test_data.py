@@ -372,3 +372,30 @@ class TestDatasetRobustness:
             for i in range(len(dataset)):
                 img = dataset.load_image(i)
                 assert img.mode == "L"
+
+
+class TestBicubicDownsample:
+
+    def test_downsample_2x_shape(self):
+        """2x downsampling halves dimensions."""
+        from inverseops.data.degradations import bicubic_downsample
+
+        img = create_test_image(size=(128, 128))
+        result = bicubic_downsample(img, scale=2)
+        assert result.size == (64, 64)
+
+    def test_downsample_4x_shape(self):
+        """4x downsampling quarters dimensions."""
+        from inverseops.data.degradations import bicubic_downsample
+
+        img = create_test_image(size=(128, 128))
+        result = bicubic_downsample(img, scale=4)
+        assert result.size == (32, 32)
+
+    def test_downsample_preserves_mode(self):
+        """Output is same mode as input."""
+        from inverseops.data.degradations import bicubic_downsample
+
+        img = create_test_image(size=(128, 128))
+        result = bicubic_downsample(img, scale=2)
+        assert result.mode == "L"
