@@ -127,6 +127,25 @@ make serve
 ```bash
 docker-compose up
 # API available at http://localhost:8000
+
+# Alternative: pull from GHCR
+docker pull ghcr.io/tyy0811/inverseops:latest
+```
+
+### Monitoring
+
+Launch with Prometheus + Grafana for production observability:
+
+```bash
+make docker-monitoring
+# Grafana: http://localhost:3000 (auto-provisioned dashboard)
+# Prometheus: http://localhost:9090
+```
+
+JSON structured logs with request ID correlation:
+
+```json
+{"request_id": "abc-123", "event": "restore_request", "level": "info", "timestamp": "2026-04-08T12:00:00Z"}
 ```
 
 ## Quick Start
@@ -145,8 +164,18 @@ Trained on Modal cloud GPU (A100) — local hardware is CPU-only, so Modal provi
 ```bash
 pip install modal && modal setup
 
-# Full training on A100 (bs=4, 100 epochs with early stopping)
+# SwinIR denoising (default)
 modal run --detach scripts/modal_train.py --batch-size 4
+
+# NAFNet denoising
+modal run --detach scripts/modal_train.py --config configs/denoise_nafnet_sigma25.yaml
+
+# SwinIR SR 2x
+modal run --detach scripts/modal_train.py --config configs/sr_swinir_2x.yaml
+
+# With W&B logging
+modal secret create wandb-api-key WANDB_API_KEY=<your-key>
+modal run --detach scripts/modal_train.py --wandb
 
 # Resume from checkpoint
 modal run --detach scripts/modal_train.py --batch-size 4 --resume
@@ -183,29 +212,49 @@ python scripts/run_evaluation.py \
     --no-wandb --allow-missing-datasets
 ```
 
+### V2: NAFNet Comparison *(placeholder — fill after training runs)*
+
+| Model | Noise | PSNR (dB) | SSIM | Notes |
+|-------|-------|-----------|------|-------|
+| SwinIR (fine-tuned) | sigma=25 | — | — | Baseline |
+| NAFNet-w32 (fine-tuned) | sigma=25 | — | — | SIDD pretrained |
+| SwinIR (real-noise) | FMD real | — | — | Real-noise fine-tuning |
+| SwinIR SR 2x | bicubic | — | — | Super-resolution |
+
+W&B project: *(link after first run)*
+
 ## Project Structure
 
 ```
 inverseops/
+    config.py       # Config validation
     data/           # Dataset loaders, transforms, degradations
-    models/         # SwinIR architecture and wrappers
+    models/         # SwinIR + NAFNet architectures and wrappers
     training/       # Trainer with early stopping, AMP, losses
     evaluation/     # PSNR/SSIM metrics
-    serving/        # FastAPI inference API with QC layer
-    tracking/       # W&B integration
+    serving/        # FastAPI inference API with QC layer, structlog
+    tracking/       # W&B integration with tags and run naming
     export/         # ONNX export utilities
 scripts/
-    modal_train.py      # Modal cloud GPU training
+    modal_train.py      # Modal cloud GPU training (multi-config)
     run_training.py     # Local training CLI
     run_evaluation.py   # Evaluation pipeline
     run_onnx_export.py  # ONNX export + benchmark
     run_latency_bench.py # PyTorch latency benchmark
 configs/
-    denoise_swinir.yaml # Training configuration
+    denoise_swinir.yaml          # SwinIR denoising (synthetic noise)
+    denoise_nafnet_sigma25.yaml  # NAFNet denoising (synthetic noise)
+    denoise_swinir_realnoise.yaml # SwinIR denoising (FMD real noise)
+    sr_swinir_2x.yaml            # SwinIR super-resolution 2x
 docker/
     Dockerfile          # Inference container
-    docker-compose.yaml # One-command deployment
+    Dockerfile.train    # GPU training container (CUDA 12.1)
+    docker-compose.yaml # Deployment + monitoring profile
+    prometheus.yaml     # Prometheus scrape config
+    grafana_dashboard.json # 4-panel API dashboard
 tests/                  # Unit and integration tests
+docs/
+    tradeoffs.md        # V2 design decisions
 ```
 
 **Tests:** Data pipeline determinism, PSNR/SSIM on known inputs, QC decision logic, API endpoint integration (health, restore, metrics, oversized upload rejection, NaN detection), Pydantic schema roundtrips, import sanity checks.
@@ -213,5 +262,6 @@ tests/                  # Unit and integration tests
 ## References
 
 - **SwinIR**: Liang et al., [SwinIR: Image Restoration Using Swin Transformer](https://arxiv.org/abs/2108.10257), ICCVW 2021
+- **NAFNet**: Chen et al., [Simple Baselines for Image Restoration](https://arxiv.org/abs/2204.04676), ECCV 2022
 - **FMD**: Zhang et al., [A Poisson-Gaussian Denoising Dataset with Real Fluorescence Microscopy Images](https://arxiv.org/abs/1811.12751), CVPR 2019
 - **Modal**: Cloud GPU platform used for training — [modal.com](https://modal.com)
