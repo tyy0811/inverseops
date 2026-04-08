@@ -6,10 +6,34 @@ Provides optional W&B integration. All functions no-op when disabled.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import yaml
+
+# Valid tag values for W&B experiment organization
+VALID_TAGS: dict[str, set[str]] = {
+    "task": {"denoising", "sr"},
+    "model": {"swinir", "nafnet"},
+    "noise": {"synthetic", "real"},
+}
+
+
+def make_run_name(base_name: str, git_sha: str | None = None) -> str:
+    """Create a unique run name with git SHA or timestamp suffix.
+
+    Args:
+        base_name: Base name for the run (e.g., 'swinir_denoise_realnoise').
+        git_sha: Git commit SHA. If None, uses UTC timestamp.
+
+    Returns:
+        Unique run name like 'swinir_denoise_realnoise_abc1234'.
+    """
+    if git_sha:
+        return f"{base_name}_{git_sha[:7]}"
+    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return f"{base_name}_{ts}"
 
 
 def init_wandb(
@@ -17,6 +41,7 @@ def init_wandb(
     enabled: bool,
     project: str,
     run_name: Optional[str] = None,
+    tags: list[str] | None = None,
 ) -> None:
     """Initialize W&B run if enabled.
 
@@ -25,6 +50,7 @@ def init_wandb(
         enabled: Whether W&B is enabled.
         project: W&B project name.
         run_name: Optional run name.
+        tags: Optional list of tags for the run.
     """
     if not enabled:
         return
@@ -35,6 +61,7 @@ def init_wandb(
         project=project,
         name=run_name,
         config=config,
+        tags=tags,
     )
 
 
