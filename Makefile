@@ -50,7 +50,7 @@ docker-train-build:
 
 docker-train-smoke:
 	docker run --gpus all \
-		-v $(PWD)/data:/data:ro \
+		-v $(PWD)/data:/app/data:ro \
 		-v $(PWD)/outputs/docker_smoke:/outputs \
 		inverseops-train \
 		--config configs/denoise_swinir.yaml \

@@ -198,7 +198,35 @@ class SwinIRBaseline:
         return Image.fromarray(output_arr, mode="L")
 
 
-# SR pretrained weight URLs (classical variant, grayscale)
+def _adapt_swinir_rgb_to_grayscale(
+    state_dict: dict, model: SwinIR
+) -> dict:
+    """Adapt RGB SwinIR weights to a 1-channel model.
+
+    Official SR checkpoints are trained on RGB (in_chans=3). For grayscale
+    (in_chans=1), we average conv_first weights across the input channel dim
+    and adapt conv_last weights for single-channel output.
+    """
+    model_sd = model.state_dict()
+    adapted = {}
+    for k, v in state_dict.items():
+        if k not in model_sd:
+            continue
+        expected = model_sd[k].shape
+        if v.shape == expected:
+            adapted[k] = v
+        elif k == "conv_first.weight" and v.shape[1] == 3 and expected[1] == 1:
+            adapted[k] = v.mean(dim=1, keepdim=True)
+        elif "conv_last.weight" in k and v.shape[0] == 3 and expected[0] == 1:
+            adapted[k] = v.sum(dim=0, keepdim=True) / 3.0
+        elif "conv_last.bias" in k and v.shape[0] == 3 and expected[0] == 1:
+            adapted[k] = v.mean(dim=0, keepdim=True)
+        else:
+            adapted[k] = v
+    return adapted
+
+
+# SR pretrained weight URLs (classical variant)
 SR_MODEL_URLS: dict[int, str] = {
     2: (
         "https://github.com/JingyunLiang/SwinIR/releases/download/"
@@ -307,6 +335,9 @@ def get_trainable_swinir(
             weight_path, map_location=device, weights_only=True
         )
         state_dict = state_dict.get("params", state_dict)
+        # Adapt RGB weights to grayscale if needed (SR checkpoints are RGB)
+        if model_config.get("in_chans", 3) == 1:
+            state_dict = _adapt_swinir_rgb_to_grayscale(state_dict, model)
         model.load_state_dict(state_dict, strict=True)
 
     model.train()

@@ -29,11 +29,10 @@ services:
     image: grafana/grafana:latest
     profiles: ["monitoring"]
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
     volumes:
       - ./grafana_dashboard.json:/var/lib/grafana/dashboards/inverseops.json:ro
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
