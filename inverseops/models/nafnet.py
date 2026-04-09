@@ -86,8 +86,14 @@ class NAFNetBaseline:
         if not weight_path.exists():
             self._download_weights(PRETRAINED_URL, weight_path)
 
-        # Keep RGB architecture to preserve all pretrained weights
-        model = NAFNet(img_channel=3, width=self.width)
+        # Keep RGB architecture with SIDD config to match checkpoint
+        model = NAFNet(
+            img_channel=3,
+            width=self.width,
+            enc_blk_nums=[2, 2, 4, 8],
+            middle_blk_num=12,
+            dec_blk_nums=[2, 2, 2, 2],
+        )
 
         pretrained = torch.load(
             weight_path, map_location=self.device, weights_only=True
@@ -200,8 +206,16 @@ def get_trainable_nafnet(
 
     cache_dir = Path(cache_dir) if cache_dir else DEFAULT_CACHE_DIR
 
-    # Build RGB model to match pretrained checkpoint
-    rgb_model = NAFNet(img_channel=3, width=width)
+    # Build RGB model with SIDD architecture to match pretrained checkpoint.
+    # NAFNet-SIDD-width32 uses [2,2,4,8] encoder, 12 middle, [2,2,2,2] decoder.
+    # The _nafnet_arch.py defaults are GoPro deblurring ([1,1,1,28]/1/[1,1,1,1]).
+    rgb_model = NAFNet(
+        img_channel=3,
+        width=width,
+        enc_blk_nums=[2, 2, 4, 8],
+        middle_blk_num=12,
+        dec_blk_nums=[2, 2, 2, 2],
+    )
 
     if pretrained:
         cache_dir.mkdir(parents=True, exist_ok=True)
