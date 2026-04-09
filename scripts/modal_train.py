@@ -121,7 +121,7 @@ train_image = data_image.add_local_dir(
 
 @app.function(
     image=train_image,
-    gpu="A100",  # 40GB; use "A100-80GB" for larger batch sizes if available
+    gpu="A100",
     volumes={"/vol": vol},      # only for saving outputs
     secrets=[modal.Secret.from_name("wandb-api-key", required=False)],
     timeout=86400,              # 24 hours
