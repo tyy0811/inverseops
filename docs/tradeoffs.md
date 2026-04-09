@@ -62,6 +62,8 @@ Decisions made during V2 implementation, with rationale and future alternatives.
 
 **V3 alternative:** Add `width: 64` config and compare.
 
+**Note on batch size:** NAFNet-width32 used only 748 MB GPU memory at batch size 2, vs SwinIR's 8.7 GB for the same setup. This is consistent with NAFNet's design (depthwise convolutions, SimpleGate activations) being more memory-efficient than SwinIR's transformer architecture. We did not exploit this in V2 — both models trained at batch size 4 for comparison consistency. A V3 optimization would be to train NAFNet at a larger batch size (potentially 16-32) with a correspondingly scaled learning rate, which might converge faster and use the available A100 capacity more fully.
+
 ---
 
 ## 6. Compile-Time Model Selection
@@ -109,6 +111,8 @@ Decisions made during V2 implementation, with rationale and future alternatives.
 **Why:** Multiple noisy captures of the same specimen share the same underlying structure. Splitting by image would leak structural information from training into validation, inflating PSNR/SSIM metrics. Specimen-level splits ensure the model is evaluated on truly unseen biological structures.
 
 **V3 alternative:** This is the correct approach — no change needed.
+
+**Note on real-noise vs synthetic PSNR:** The real-noise training result (38.89 dB) is not directly comparable to the synthetic sigma=25 result (36.24 dB) because the underlying noise distributions differ. Real FMD confocal noise is lower-magnitude than synthetic sigma=25 Gaussian, and the averaged ground truth provides a cleaner target than synthetic degradation allows. The two results should be reported side-by-side as separate training regimes, not combined into a single leaderboard.
 
 ---
 
