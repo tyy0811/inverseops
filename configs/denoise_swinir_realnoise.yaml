@@ -7,8 +7,8 @@ seed: 42
 task: denoise
 
 data:
-  train_root: data/raw/fmd/Confocal_FISH
-  val_root: data/raw/fmd/Confocal_FISH
+  train_root: data/raw/fmd/fmd/Confocal_FISH
+  val_root: data/raw/fmd/fmd/Confocal_FISH
   noise_source: real
   batch_size: 4
   num_workers: 2

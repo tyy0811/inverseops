@@ -123,7 +123,7 @@ train_image = data_image.add_local_dir(
     image=train_image,
     gpu="A100",
     volumes={"/vol": vol},      # only for saving outputs
-    secrets=[modal.Secret.from_name("wandb-api-key", required=False)],
+    # secrets=[modal.Secret.from_name("wandb-api-key")],  # uncomment if W&B configured
     timeout=86400,              # 24 hours
 )
 def train(
@@ -158,8 +158,15 @@ def train(
     with open(f"/app/{config_path}") as f:
         config = yaml.safe_load(f)
 
-    config["data"]["train_root"] = DATA_DIR
-    config["data"]["val_root"] = DATA_DIR
+    # Rebase data paths: replace local "data/raw/fmd" prefix with Modal's DATA_DIR
+    for key in ("train_root", "val_root"):
+        local_path = config["data"].get(key, "")
+        # Strip the local "data/raw/fmd" prefix, keep the rest (e.g., /fmd/Confocal_FISH)
+        if "data/raw/fmd" in local_path:
+            suffix = local_path.split("data/raw/fmd", 1)[1]
+            config["data"][key] = DATA_DIR + suffix
+        else:
+            config["data"][key] = DATA_DIR
     config["data"]["num_workers"] = 0
     config["output_dir"] = "/vol/outputs/training"
 
