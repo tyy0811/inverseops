@@ -1,7 +1,17 @@
 """NAFNet model wrapper for grayscale image denoising.
 
 Mirrors the SwinIRBaseline interface for drop-in model swapping.
-Pretrained weights: NAFNet-width32 trained on SIDD real-world denoising.
+Pretrained weights: NAFNet-width32 trained on SIDD real-world denoising (RGB).
+
+The SIDD checkpoint is RGB-native (img_channel=3). To preserve all pretrained
+weights without surgery, we keep the model in RGB mode and handle grayscale
+conversion at the input/output boundary:
+- Input: grayscale [1,1,H,W] → replicated to [1,3,H,W]
+- Output: RGB [1,3,H,W] → averaged to [1,1,H,W]
+
+This preserves the full pretrained representation, unlike averaging the first
+conv layer's weights (which destroys multi-channel feature information).
+See docs/tradeoffs.md for rationale.
 
 Source: https://github.com/megvii-research/NAFNet
 """
@@ -15,8 +25,8 @@ from PIL import Image
 
 from inverseops.models._nafnet_arch import NAFNet
 
-# Pretrained weights URL — mirror to GitHub release for stability
-# Original: Google Drive link from NAFNet repo
+# Pretrained weights URL — mirrored to GitHub release for build stability.
+# Original source: megvii-research/NAFNet (Google Drive, MIT license).
 PRETRAINED_URL = (
     "https://github.com/tyy0811/inverseops/releases/download/"
     "pretrained-weights-v1/NAFNet-SIDD-width32.pth"
@@ -28,40 +38,14 @@ _cache_base = Path(
 DEFAULT_CACHE_DIR = _cache_base / "models"
 
 
-def _adapt_rgb_to_grayscale(state_dict: dict, model: NAFNet) -> dict:
-    """Adapt RGB pretrained weights to a 1-channel model.
-
-    The official NAFNet-SIDD checkpoint is trained on 3-channel RGB images.
-    For grayscale (img_channel=1), we average the input conv weights across
-    the channel dimension and sum the output conv weights.
-    """
-    model_sd = model.state_dict()
-    adapted = {}
-    for k, v in state_dict.items():
-        if k not in model_sd:
-            continue
-        expected_shape = model_sd[k].shape
-        if v.shape == expected_shape:
-            adapted[k] = v
-        elif k == "intro.weight" and v.shape[1] == 3 and expected_shape[1] == 1:
-            # Input conv: [out, 3, kh, kw] -> [out, 1, kh, kw]
-            adapted[k] = v.mean(dim=1, keepdim=True)
-        elif k == "ending.weight" and v.shape[0] == 3 and expected_shape[0] == 1:
-            # Output conv: [3, in, kh, kw] -> [1, in, kh, kw]
-            adapted[k] = v.sum(dim=0, keepdim=True) / 3.0
-        elif k == "ending.bias" and v.shape[0] == 3 and expected_shape[0] == 1:
-            # Output bias: [3] -> [1]
-            adapted[k] = v.mean(dim=0, keepdim=True)
-        else:
-            adapted[k] = v
-    return adapted
-
-
 class NAFNetBaseline:
     """Wrapper for NAFNet grayscale denoising model.
 
     Mirrors SwinIRBaseline interface: lazy loading, device auto-detection,
     predict_raw() and predict_image() methods.
+
+    The underlying NAFNet runs in RGB mode (img_channel=3) to preserve all
+    pretrained SIDD weights. Grayscale conversion happens at the boundary.
     """
 
     def __init__(
@@ -102,8 +86,8 @@ class NAFNetBaseline:
         if not weight_path.exists():
             self._download_weights(PRETRAINED_URL, weight_path)
 
-        # NAFNet-width32 for grayscale denoising
-        model = NAFNet(img_channel=1, width=self.width)
+        # Keep RGB architecture to preserve all pretrained weights
+        model = NAFNet(img_channel=3, width=self.width)
 
         pretrained = torch.load(
             weight_path, map_location=self.device, weights_only=True
@@ -116,8 +100,6 @@ class NAFNetBaseline:
         else:
             state_dict = pretrained
 
-        # Adapt RGB weights to grayscale if needed
-        state_dict = _adapt_rgb_to_grayscale(state_dict, model)
         model.load_state_dict(state_dict, strict=True)
         model.eval()
         model.to(self.device)
@@ -148,10 +130,13 @@ class NAFNetBaseline:
             image = image.convert("L")
 
         arr = np.array(image, dtype=np.float32) / 255.0
+        # Replicate grayscale to 3 channels for RGB model
         tensor = torch.from_numpy(arr).unsqueeze(0).unsqueeze(0)
-        tensor = tensor.to(self.device)
+        tensor = tensor.expand(-1, 3, -1, -1).to(self.device)
 
         output = self._model(tensor)
+        # Average 3-channel output back to grayscale
+        output = output.mean(dim=1)
         return output.squeeze().cpu().numpy()
 
     @torch.no_grad()
@@ -169,14 +154,37 @@ class NAFNetBaseline:
         return Image.fromarray(output_arr, mode="L")
 
 
+class _GrayscaleRGBWrapper(torch.nn.Module):
+    """Wraps an RGB NAFNet for grayscale training.
+
+    Replicates 1-channel input to 3 channels, runs the RGB model,
+    and averages the 3-channel output back to 1 channel. This
+    preserves all pretrained weights during fine-tuning.
+    """
+
+    def __init__(self, rgb_model: NAFNet) -> None:
+        super().__init__()
+        self.rgb_model = rgb_model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [B, 1, H, W] → [B, 3, H, W]
+        x_rgb = x.expand(-1, 3, -1, -1)
+        out_rgb = self.rgb_model(x_rgb)
+        # [B, 3, H, W] → [B, 1, H, W]
+        return out_rgb.mean(dim=1, keepdim=True)
+
+
 def get_trainable_nafnet(
     pretrained: bool = True,
     device: str | None = None,
     cache_dir: Path | str | None = None,
     width: int = 32,
     **kwargs,
-) -> NAFNet:
+) -> torch.nn.Module:
     """Return trainable NAFNet model for grayscale denoising.
+
+    Returns a wrapper that handles grayscale↔RGB conversion around
+    the RGB NAFNet, preserving all pretrained SIDD weights.
 
     Args:
         pretrained: If True, load SIDD pretrained weights.
@@ -185,14 +193,15 @@ def get_trainable_nafnet(
         width: NAFNet width (32 or 64).
 
     Returns:
-        NAFNet nn.Module in training mode.
+        nn.Module in training mode (accepts [B,1,H,W], outputs [B,1,H,W]).
     """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
     cache_dir = Path(cache_dir) if cache_dir else DEFAULT_CACHE_DIR
 
-    model = NAFNet(img_channel=1, width=width)
+    # Build RGB model to match pretrained checkpoint
+    rgb_model = NAFNet(img_channel=3, width=width)
 
     if pretrained:
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -201,19 +210,22 @@ def get_trainable_nafnet(
 
         if not weight_path.exists():
             import urllib.request
+
             print(f"Downloading NAFNet weights from {PRETRAINED_URL}...")
             urllib.request.urlretrieve(PRETRAINED_URL, weight_path)
             print(f"Saved to {weight_path}")
 
-        state_dict = torch.load(weight_path, map_location=device, weights_only=True)
+        state_dict = torch.load(
+            weight_path, map_location=device, weights_only=True
+        )
         if "params" in state_dict:
             state_dict = state_dict["params"]
         elif "state_dict" in state_dict:
             state_dict = state_dict["state_dict"]
-        # Adapt RGB weights to grayscale if needed
-        state_dict = _adapt_rgb_to_grayscale(state_dict, model)
-        model.load_state_dict(state_dict, strict=True)
+        rgb_model.load_state_dict(state_dict, strict=True)
 
+    # Wrap in grayscale adapter
+    model = _GrayscaleRGBWrapper(rgb_model)
     model.train()
     model.to(device)
     return model

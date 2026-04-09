@@ -26,46 +26,46 @@ class TestNAFNetWrapper:
         with pytest.raises(RuntimeError, match="not loaded"):
             model.predict_raw(img)
 
-    def test_nafnet_forward_pass_shape(self):
-        """NAFNet forward pass preserves spatial dimensions."""
+    def test_nafnet_raw_arch_forward_pass_shape(self):
+        """Raw RGB NAFNet forward pass preserves spatial dimensions."""
         from inverseops.models._nafnet_arch import NAFNet
 
-        model = NAFNet(img_channel=1, width=32)
+        model = NAFNet(img_channel=3, width=32)
         model.eval()
-        x = torch.randn(1, 1, 64, 64)
+        x = torch.randn(1, 3, 64, 64)
         with torch.no_grad():
             y = model(x)
         assert y.shape == x.shape
 
 
-class TestNAFNetWeightAdaptation:
-    """Tests for RGB→grayscale weight adaptation."""
+class TestGrayscaleRGBWrapper:
+    """Tests for the grayscale↔RGB wrapper used in training."""
 
-    def test_adapt_rgb_to_grayscale_intro_conv(self):
-        """Input conv weights are averaged across 3 channels to 1."""
+    def test_wrapper_accepts_grayscale_returns_grayscale(self):
+        """Wrapper takes [B,1,H,W] input and returns [B,1,H,W] output."""
         from inverseops.models._nafnet_arch import NAFNet
-        from inverseops.models.nafnet import _adapt_rgb_to_grayscale
+        from inverseops.models.nafnet import _GrayscaleRGBWrapper
 
         rgb_model = NAFNet(img_channel=3, width=32)
-        gray_model = NAFNet(img_channel=1, width=32)
+        wrapper = _GrayscaleRGBWrapper(rgb_model)
+        wrapper.eval()
 
-        rgb_sd = rgb_model.state_dict()
-        adapted = _adapt_rgb_to_grayscale(rgb_sd, gray_model)
+        x = torch.randn(1, 1, 64, 64)
+        with torch.no_grad():
+            y = wrapper(x)
+        assert y.shape == (1, 1, 64, 64)
 
-        assert adapted["intro.weight"].shape[1] == 1
-        assert adapted["ending.weight"].shape[0] == 1
+    def test_get_trainable_nafnet_grayscale_io(self):
+        """get_trainable_nafnet returns model with grayscale in/out."""
+        from inverseops.models.nafnet import get_trainable_nafnet
 
-    def test_adapt_noop_when_already_grayscale(self):
-        """No changes when weights already match grayscale architecture."""
-        from inverseops.models._nafnet_arch import NAFNet
-        from inverseops.models.nafnet import _adapt_rgb_to_grayscale
+        model = get_trainable_nafnet(pretrained=False, device="cpu")
+        model.eval()
 
-        gray_model = NAFNet(img_channel=1, width=32)
-        gray_sd = gray_model.state_dict()
-        adapted = _adapt_rgb_to_grayscale(gray_sd, gray_model)
-
-        for k in gray_sd:
-            assert adapted[k].shape == gray_sd[k].shape
+        x = torch.randn(1, 1, 64, 64)
+        with torch.no_grad():
+            y = model(x)
+        assert y.shape == (1, 1, 64, 64)
 
 
 class TestNAFNetRegistry:
