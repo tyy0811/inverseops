@@ -257,10 +257,14 @@ def _build_denoise_config() -> dict:
 
 
 def _build_sr_config(scale: int) -> dict:
-    """Return SwinIR constructor kwargs for classical SR."""
+    """Return SwinIR constructor kwargs for classical SR.
+
+    Uses in_chans=3 to match the RGB pretrained checkpoint. Grayscale
+    conversion is handled at the wrapper boundary (Option D).
+    """
     return dict(
         upscale=scale,
-        in_chans=1,
+        in_chans=3,
         img_size=64,
         window_size=8,
         img_range=1.0,
@@ -271,6 +275,26 @@ def _build_sr_config(scale: int) -> dict:
         upsampler="pixelshuffle",
         resi_connection="1conv",
     )
+
+
+class _GrayscaleSRWrapper(torch.nn.Module):
+    """Wraps an RGB SwinIR SR model for grayscale training.
+
+    Replicates 1-channel input to 3 channels, runs the RGB SR model,
+    and averages the 3-channel output back to 1 channel. Preserves
+    all pretrained weights (Option D).
+    """
+
+    def __init__(self, rgb_model: SwinIR) -> None:
+        super().__init__()
+        self.rgb_model = rgb_model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [B, 1, H, W] → [B, 3, H, W]
+        x_rgb = x.expand(-1, 3, -1, -1)
+        out_rgb = self.rgb_model(x_rgb)
+        # [B, 3, H, W] → [B, 1, H, W]
+        return out_rgb.mean(dim=1, keepdim=True)
 
 
 def get_trainable_swinir(
@@ -335,11 +359,15 @@ def get_trainable_swinir(
             weight_path, map_location=device, weights_only=True
         )
         state_dict = state_dict.get("params", state_dict)
-        # Adapt RGB weights to grayscale if needed (SR checkpoints are RGB)
-        if model_config.get("in_chans", 3) == 1:
-            state_dict = _adapt_swinir_rgb_to_grayscale(state_dict, model)
         model.load_state_dict(state_dict, strict=True)
 
     model.train()
     model.to(device)
+
+    # For SR: wrap in grayscale adapter (Option D) since checkpoint is RGB
+    if task == "sr":
+        wrapper = _GrayscaleSRWrapper(model)
+        wrapper.train()
+        return wrapper
+
     return model
