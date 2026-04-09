@@ -212,16 +212,37 @@ python scripts/run_evaluation.py \
     --no-wandb --allow-missing-datasets
 ```
 
-### V2: NAFNet Comparison *(placeholder — fill after training runs)*
+### V2 Tier 2: Architecture Comparison (SwinIR vs NAFNet)
 
-| Model | Noise | PSNR (dB) | SSIM | Notes |
-|-------|-------|-----------|------|-------|
-| SwinIR (fine-tuned) | sigma=25 | — | — | Baseline |
-| NAFNet-w32 (fine-tuned) | sigma=25 | — | — | SIDD pretrained |
-| SwinIR (real-noise) | FMD real | — | — | Real-noise fine-tuning |
-| SwinIR SR 2x | bicubic | — | — | Super-resolution |
+We fine-tuned NAFNet-SIDD-width32 on the same FMD Confocal FISH synthetic Gaussian denoising benchmark as V1 SwinIR. Both models used identical training settings: L1 loss, AdamW optimizer, cosine LR schedule, early stopping with patience 10, batch size 4.
 
-W&B project: *(link after first run)*
+| Model | Val PSNR | Best Epoch | Early Stop | Training Time | GPU Memory |
+|-------|----------|------------|------------|---------------|------------|
+| SwinIR (grayscale denoising pretrained) | **36.24 dB** | 16 | Epoch 16 | ~15 min | 8.7 GB |
+| NAFNet (SIDD real-noise pretrained) | 30.95 dB | 31 | Epoch 41 | ~123 min | 1.1 GB |
+
+**At matched training budget (epoch 16)**, the gap is 5.47 dB. NAFNet's additional 25 epochs of training yielded only 0.18 dB of further improvement, indicating genuine convergence rather than truncated optimization.
+
+**Interpretation.** The 5.3-5.5 dB gap reflects primarily a **pretraining task mismatch**, not an architectural difference. SwinIR's checkpoint was pretrained on additive Gaussian noise denoising — the exact task we fine-tune for, just on natural images instead of microscopy. NAFNet's SIDD checkpoint was pretrained on real smartphone noise (signal-dependent, spatially correlated, sensor-structured), which transfers poorly to unstructured Gaussian noise. Secondary contributors include the RGB→grayscale channel adaptation (NAFNet runs in RGB mode with grayscale input replicated to 3 channels) and the loss function (NAFNet's official training uses PSNR loss, not L1).
+
+**What this comparison shows:** given two pretrained image restoration models, which adapts better to grayscale microscopy denoising under identical fine-tuning conditions? SwinIR adapts much better. **What it does not show:** that SwinIR's architecture is inherently better than NAFNet's. A fair architecture-only comparison would require both models pretrained on the same task, which was outside V2 scope.
+
+**Practical lesson:** pretraining task match matters more than architecture choice for domain adaptation with limited training data. When fine-tuning from public weights, ask "what task were these weights trained on?" before "which architecture is strongest on leaderboards?"
+
+NAFNet retains advantages not visible in PSNR: ~8x lower GPU memory (1.1 GB vs 8.7 GB), simpler architecture for deployment. For memory-constrained applications, NAFNet may be preferable despite the PSNR gap.
+
+### V2 Tier 2: Real-Noise Fine-Tuning
+
+SwinIR fine-tuned on FMD real noisy/clean pairs (specimen-level splits, no synthetic noise).
+
+| Model | Noise Source | Val PSNR | Best Epoch | Early Stop |
+|-------|-------------|----------|------------|------------|
+| SwinIR (synthetic sigma=25) | Gaussian | 36.24 dB | 16 | Epoch 16 |
+| SwinIR (real-noise) | FMD Confocal | 38.89 dB | 9 | Epoch 19 |
+
+The real-noise result (38.89 dB) is not directly comparable to the synthetic result (36.24 dB) — the noise distributions differ. Real FMD confocal noise is lower-magnitude than synthetic sigma=25 Gaussian, and the averaged ground truth (50 captures) provides a cleaner target. These are separate training regimes reported side-by-side, not a leaderboard.
+
+W&B project: [inverseops](https://wandb.ai/janedoraemon-universit-t-hamburg/inverseops)
 
 ## Project Structure
 

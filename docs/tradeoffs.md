@@ -64,6 +64,8 @@ Decisions made during V2 implementation, with rationale and future alternatives.
 
 **Note on batch size:** NAFNet-width32 used only 748 MB GPU memory at batch size 2, vs SwinIR's 8.7 GB for the same setup. This is consistent with NAFNet's design (depthwise convolutions, SimpleGate activations) being more memory-efficient than SwinIR's transformer architecture. We did not exploit this in V2 — both models trained at batch size 4 for comparison consistency. A V3 optimization would be to train NAFNet at a larger batch size (potentially 16-32) with a correspondingly scaled learning rate, which might converge faster and use the available A100 capacity more fully.
 
+**NAFNet training efficiency observation.** Despite being ~2.4x larger than SwinIR in parameter count (29M vs 12M), NAFNet used only 1.1 GB GPU memory during training vs SwinIR's 8.7 GB — roughly 8x less. This is consistent with NAFNet's design emphasis on memory efficiency via depthwise convolutions and SimpleGate activations. However, NAFNet also trained ~8x slower in wall clock time (123 min vs 15 min), suggesting the memory efficiency comes at a throughput cost. For deployment scenarios where memory is the primary constraint, NAFNet is attractive; for training throughput on well-provisioned GPUs, SwinIR may be preferable. This tradeoff was not a focus of the V2 comparison but is worth noting for future model selection decisions.
+
 ---
 
 ## 6. Compile-Time Model Selection
