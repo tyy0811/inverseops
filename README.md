@@ -265,3 +265,12 @@ docs/
 - **NAFNet**: Chen et al., [Simple Baselines for Image Restoration](https://arxiv.org/abs/2204.04676), ECCV 2022
 - **FMD**: Zhang et al., [A Poisson-Gaussian Denoising Dataset with Real Fluorescence Microscopy Images](https://arxiv.org/abs/1811.12751), CVPR 2019
 - **Modal**: Cloud GPU platform used for training — [modal.com](https://modal.com)
+
+## Runtime Dependencies
+
+**Model weights:**
+- **SwinIR** pretrained weights: loaded from [official GitHub releases](https://github.com/JingyunLiang/SwinIR/releases) at build time (Apache 2.0)
+- **NAFNet** pretrained weights: mirrored to this repo's [`pretrained-weights-v1`](https://github.com/tyy0811/inverseops/releases/tag/pretrained-weights-v1) release for build stability. Original source: [megvii-research/NAFNet](https://github.com/megvii-research/NAFNet) (MIT). Mirrored because the original distribution is on Google Drive, which is not suitable for automated builds.
+
+**Datasets:**
+- **FMD**: downloaded from [Zenodo 3713545](https://zenodo.org/records/3713545) at setup time
