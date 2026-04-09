@@ -221,7 +221,15 @@ class Trainer:
                 loss.backward()
                 self.optimizer.step()
 
-            total_loss += loss.item()
+            loss_val = loss.item()
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(
+                    f"WARNING: NaN/Inf loss at step {self.global_step}, "
+                    f"batch {batch_idx}. Skipping batch."
+                )
+                continue
+
+            total_loss += loss_val
             num_batches += 1
             self.global_step += 1
 

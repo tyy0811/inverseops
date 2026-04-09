@@ -24,7 +24,7 @@ training:
   learning_rate: 2.0e-4
   weight_decay: 0.0
   loss: l1
-  amp: true
+  amp: false  # AMP produces NaN with real-noise data on SwinIR
   early_stopping_patience: 10
   log_every_n_steps: 100
 

@@ -59,8 +59,8 @@ PRETRAINED_URLS = [
     # SwinIR SR (2x, 4x)
     "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DF2K_s64w8_SwinIR-M_x2.pth",
     "https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/001_classicalSR_DF2K_s64w8_SwinIR-M_x4.pth",
-    # NAFNet SIDD denoising
-    "https://github.com/megvii-research/NAFNet/releases/download/v0.0.0/NAFNet-SIDD-width32.pth",
+    # NAFNet SIDD denoising — TODO: add back once mirrored to GitHub release
+    # "https://github.com/tyy0811/inverseops/releases/download/pretrained-weights-v1/NAFNet-SIDD-width32.pth",
 ]
 
 # 1) Install Python deps + download all pretrained weights
@@ -123,7 +123,7 @@ train_image = data_image.add_local_dir(
     image=train_image,
     gpu="A100",
     volumes={"/vol": vol},      # only for saving outputs
-    # secrets=[modal.Secret.from_name("wandb-api-key")],  # uncomment if W&B configured
+    secrets=[modal.Secret.from_name("wandb-api-key")],
     timeout=86400,              # 24 hours
 )
 def train(
