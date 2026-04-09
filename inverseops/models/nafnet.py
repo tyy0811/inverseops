@@ -18,8 +18,8 @@ from inverseops.models._nafnet_arch import NAFNet
 # Pretrained weights URL — mirror to GitHub release for stability
 # Original: Google Drive link from NAFNet repo
 PRETRAINED_URL = (
-    "https://github.com/megvii-research/NAFNet/releases/download/"
-    "v0.0.0/NAFNet-SIDD-width32.pth"
+    "https://github.com/tyy0811/inverseops/releases/download/"
+    "pretrained-weights-v1/NAFNet-SIDD-width32.pth"
 )
 
 _cache_base = Path(
