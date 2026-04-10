@@ -19,11 +19,7 @@ import numpy as np
 import torch
 import yaml
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.data import DataLoader, Subset
-
 from inverseops.config import validate_config
-from inverseops.data.microscopy import MicroscopyDataset
-from inverseops.data.torch_datasets import MicroscopyTrainDataset
 from inverseops.models import build_model
 from inverseops.tracking.experiment import (
     finish_run,
@@ -91,147 +87,16 @@ def load_config(config_path: Path) -> dict:
 
 def build_dataloaders(
     config: dict, preload: bool = False,
-) -> tuple[DataLoader, DataLoader]:
-    """Build train and validation DataLoaders."""
-    data_cfg = config["data"]
-    seed = config["seed"]
-    task = config.get("task", "denoise")
-    noise_source = data_cfg.get("noise_source", "synthetic")
+) -> tuple:
+    """Build train and validation DataLoaders.
 
-    if task == "sr":
-        # SR uses same clean images but creates LR/HR pairs via bicubic
-        scale = data_cfg.get("scale", 2)
-        train_base = MicroscopyDataset(
-            root_dir=data_cfg["train_root"],
-            split="train",
-            seed=seed,
-        )
-        train_base.prepare()
-        if preload:
-            train_base.preload()
-
-        from inverseops.data.torch_datasets import SRTrainDataset
-
-        train_dataset = SRTrainDataset(
-            base_dataset=train_base,
-            patch_size=data_cfg["patch_size"],
-            scale=scale,
-            seed=seed,
-            training=True,
-        )
-
-        val_base = MicroscopyDataset(
-            root_dir=data_cfg["val_root"],
-            split="val",
-            seed=seed,
-        )
-        val_base.prepare()
-        if preload:
-            val_base.preload()
-
-        val_dataset = SRTrainDataset(
-            base_dataset=val_base,
-            patch_size=data_cfg["patch_size"],
-            scale=scale,
-            seed=seed,
-            training=False,
-        )
-    elif noise_source == "real":
-        from inverseops.data.microscopy_real import RealNoiseMicroscopyDataset
-        from inverseops.data.torch_datasets import RealNoiseTrainDataset
-
-        train_base = RealNoiseMicroscopyDataset(
-            root_dir=data_cfg["train_root"],
-            split="train",
-            seed=seed,
-        )
-        train_base.prepare()
-        train_dataset = RealNoiseTrainDataset(
-            base_dataset=train_base,
-            patch_size=data_cfg["patch_size"],
-            seed=seed,
-            training=True,
-        )
-
-        val_base = RealNoiseMicroscopyDataset(
-            root_dir=data_cfg["val_root"],
-            split="val",
-            seed=seed,
-        )
-        val_base.prepare()
-        val_dataset = RealNoiseTrainDataset(
-            base_dataset=val_base,
-            patch_size=data_cfg["patch_size"],
-            seed=seed,
-            training=False,
-        )
-    else:
-        # Existing synthetic pipeline
-        train_base = MicroscopyDataset(
-            root_dir=data_cfg["train_root"],
-            split="train",
-            seed=seed,
-        )
-        train_base.prepare()
-        if preload:
-            train_base.preload()
-
-        train_dataset = MicroscopyTrainDataset(
-            base_dataset=train_base,
-            patch_size=data_cfg["patch_size"],
-            sigmas=tuple(data_cfg.get("sigmas", [15, 25, 50])),
-            seed=seed,
-            training=True,
-        )
-
-        val_base = MicroscopyDataset(
-            root_dir=data_cfg["val_root"],
-            split="val",
-            seed=seed,
-        )
-        val_base.prepare()
-        if preload:
-            val_base.preload()
-
-        val_dataset = MicroscopyTrainDataset(
-            base_dataset=val_base,
-            patch_size=data_cfg["patch_size"],
-            sigmas=tuple(data_cfg.get("sigmas", [15, 25, 50])),
-            seed=seed,
-            training=False,
-        )
-
-    # Apply sample limits
-    limit_train = data_cfg.get("limit_train_samples")
-    if limit_train is not None and limit_train < len(train_dataset):
-        train_dataset = Subset(train_dataset, list(range(limit_train)))  # type: ignore[assignment]
-
-    limit_val = data_cfg.get("limit_val_samples")
-    if limit_val is not None and limit_val < len(val_dataset):
-        val_dataset = Subset(val_dataset, list(range(limit_val)))  # type: ignore[assignment]
-
-    # Create DataLoaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=data_cfg["batch_size"],
-        shuffle=True,
-        num_workers=data_cfg["num_workers"],
-        pin_memory=True,
-        drop_last=True,
+    V3 stub: wire to W2SDataset in Phase 1 Day 1.
+    """
+    raise NotImplementedError(
+        "V3: build_dataloaders() gutted in quarantine commit. "
+        "Replace with W2SDataset — see Phase 1 Day 1 in "
+        "docs/plans/2026-04-10-v3-inverse-problems-design.md"
     )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=data_cfg["batch_size"],
-        shuffle=False,
-        num_workers=data_cfg["num_workers"],
-        pin_memory=True,
-    )
-
-    print(f"Train dataset: {len(train_dataset)} samples")
-    print(f"Val dataset: {len(val_dataset)} samples")
-
-    return train_loader, val_loader
 
 
 def main() -> int:

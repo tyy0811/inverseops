@@ -18,7 +18,6 @@ def test_valid_tags_has_models():
 def test_valid_tags_has_noise():
     """Tag constants include noise type values."""
     assert "synthetic" in VALID_TAGS["noise"]
-    assert "real" in VALID_TAGS["noise"]
 
 
 def test_make_run_name_with_sha():

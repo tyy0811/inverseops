@@ -9,13 +9,9 @@ from inverseops.data.degradations import (
     add_gaussian_noise,
     generate_noisy_variants,
 )
-from inverseops.data.microscopy import MicroscopyDataset
-from inverseops.data.torch_datasets import MicroscopyTrainDataset, RealNoiseTrainDataset
 from inverseops.data.transforms import center_crop, normalize_to_uint8, to_grayscale
 
 __all__ = [
-    "MicroscopyDataset",
-    "MicroscopyTrainDataset",
     "SUPPORTED_SIGMAS",
     "add_gaussian_noise",
     "generate_noisy_variants",
@@ -26,22 +22,20 @@ __all__ = [
     "build_dataset",
 ]
 
-DATASET_REGISTRY: dict[str, type] = {
-    "synthetic": MicroscopyTrainDataset,
-    "real": RealNoiseTrainDataset,
-}
+# W2S registered in Phase 1 Day 1, IXI in Phase 2 Day 5
+DATASET_REGISTRY: dict[str, type] = {}
 
 
 def build_dataset(config: dict, split: str = "train", **kwargs: Any):
     """Build a dataset from config using the registry.
 
-    Config key: config["data"]["noise_source"] (default: "synthetic").
+    Config key: config["data"]["dataset"] selects the registered dataset class.
     """
     data_cfg = config.get("data", {})
-    noise_source = data_cfg.get("noise_source", "synthetic")
-    if noise_source not in DATASET_REGISTRY:
+    dataset_name = data_cfg.get("dataset", "")
+    if dataset_name not in DATASET_REGISTRY:
         raise ValueError(
-            f"Unknown dataset type: {noise_source!r}. "
+            f"Unknown dataset: {dataset_name!r}. "
             f"Available: {sorted(DATASET_REGISTRY.keys())}"
         )
-    return DATASET_REGISTRY[noise_source]
+    return DATASET_REGISTRY[dataset_name]

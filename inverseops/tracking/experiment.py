@@ -16,7 +16,7 @@ import yaml
 VALID_TAGS: dict[str, set[str]] = {
     "task": {"denoising", "sr"},
     "model": {"swinir", "nafnet"},
-    "noise": {"synthetic", "real"},
+    "noise": {"synthetic"},
 }
 
 

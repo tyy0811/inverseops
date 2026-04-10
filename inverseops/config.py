@@ -10,7 +10,6 @@ from inverseops.models import MODEL_REGISTRY
 
 VALID_TASKS = {"denoise", "sr"}
 VALID_LOSSES = {"l1"}
-VALID_NOISE_SOURCES = {"synthetic", "real"}
 
 # Which tasks each model supports
 MODEL_TASK_SUPPORT: dict[str, set[str]] = {
@@ -50,14 +49,6 @@ def validate_config(config: dict) -> None:
         raise ValueError("Config missing data.train_root")
     if not data_cfg.get("val_root"):
         raise ValueError("Config missing data.val_root")
-
-    # Noise source (optional, defaults to synthetic)
-    noise_source = data_cfg.get("noise_source", "synthetic")
-    if noise_source not in VALID_NOISE_SOURCES:
-        raise ValueError(
-            f"Unknown noise_source: {noise_source!r}. "
-            f"Valid: {sorted(VALID_NOISE_SOURCES)}"
-        )
 
     # Loss
     loss = config.get("training", {}).get("loss", "l1")
