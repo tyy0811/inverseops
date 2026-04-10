@@ -1,3 +1,6 @@
+# Model weights (large binaries — use GitHub Releases, not source control)
+*.pth
+
 # Data (large binaries)
 /data/
 
