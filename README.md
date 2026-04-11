@@ -2,64 +2,52 @@
 
 [![CI](https://github.com/tyy0811/inverseops/actions/workflows/ci.yaml/badge.svg)](https://github.com/tyy0811/inverseops/actions/workflows/ci.yaml)
 
-**Domain-adapting a pretrained image restoration model (SwinIR) for fluorescence microscopy denoising.** Pretrained models trained on natural images degrade significantly on scientific imaging; this project quantifies that gap and closes it through targeted fine-tuning, achieving **+10 dB PSNR at high noise levels**.
+**Image restoration for fluorescence microscopy** — denoising and super-resolution on the [W2S (Widefield2SIM)](https://github.com/ivrl/w2s) dataset with real Poisson-Gaussian noise. Production pipeline with FastAPI inference, Docker deployment, ONNX export, and Prometheus monitoring.
 
-Full pipeline: data loading, cloud GPU training (Modal A100), evaluation, FastAPI inference API, and Docker deployment.
+Portfolio project demonstrating production ML engineering and methodology discipline for computational imaging. Emphasis on honest evaluation: calibrated harness, frozen specimen-level splits, and documented methodology catches.
+
+![W2S Denoising Comparison](figures/v3/w2s_denoising_comparison.png)
+
+*W2S fluorescence microscopy denoising. Left to right: noisy single-frame capture, 400-frame average (clean reference), SwinIR denoised, NAFNet denoised. Right: SIM high-resolution ground truth (2x) — the target for future super-resolution work, not a model output.*
 
 ## Results
 
-Fine-tuned SwinIR on FMD Confocal FISH data (A100 GPU, 16 epochs with early stopping, cosine LR schedule).
+SwinIR and NAFNet retrained on 94 W2S FoVs with real microscopy noise (Poisson-Gaussian from frame averaging). Evaluated on 13 held-out FoVs, reported as mean +/- std across FoVs.
 
-```mermaid
----
-config:
-    xyChart:
-        width: 600
-        height: 400
----
-xychart-beta
-    title "PSNR: Pretrained vs Fine-tuned (dB)"
-    x-axis ["sigma=15", "sigma=25", "sigma=50"]
-    y-axis "PSNR (dB)" 20 --> 42
-    bar [36.65, 30.79, 23.47]
-    bar [37.73, 36.24, 33.51]
-```
+| Noise Level | SwinIR PSNR (dB) | SwinIR SSIM | NAFNet PSNR (dB) | NAFNet SSIM |
+|-------------|------------------|-------------|------------------|-------------|
+| avg1 | 34.31 +/- 2.84 | 0.925 +/- 0.024 | 34.05 +/- 2.72 | 0.921 +/- 0.025 |
+| avg2 | 36.34 +/- 2.63 | 0.940 +/- 0.019 | 35.99 +/- 2.52 | 0.939 +/- 0.019 |
+| avg4 | 38.17 +/- 2.44 | 0.954 +/- 0.014 | 37.84 +/- 2.43 | 0.952 +/- 0.015 |
+| avg8 | 39.79 +/- 2.36 | 0.964 +/- 0.011 | 39.40 +/- 2.38 | 0.962 +/- 0.011 |
+| avg16 | 41.09 +/- 2.41 | 0.971 +/- 0.009 | 40.69 +/- 2.47 | 0.970 +/- 0.009 |
 
-| Noise level | Pretrained | Fine-tuned | Delta PSNR | Delta SSIM |
-|-------------|-----------|-----------|------------|------------|
-| sigma=15 | 36.65 dB | 37.73 dB | **+1.08 dB** | +0.066 |
-| sigma=25 | 30.79 dB | 36.24 dB | **+5.45 dB** | +0.228 |
-| sigma=50 | 23.47 dB | 33.51 dB | **+10.04 dB** | +0.457 |
+SwinIR shows a small consistent advantage over NAFNet (0.3-0.4 dB across all noise levels). Both models show the expected pattern of increasing PSNR with decreasing noise.
 
-Domain-specific fine-tuning dramatically improves denoising, especially at high noise levels (+10 dB at sigma=50).
+### Model Comparison
 
-### Example (sigma=50)
+| | SwinIR | NAFNet |
+|---|--------|--------|
+| Best val PSNR | 37.56 dB | 37.31 dB |
+| Best epoch | 11 | 8 |
+| Training time (A100) | 85 min | 20 min |
+| GPU memory | 24.0 GB | 1.5 GB |
 
-| Clean | Noisy (16.09 dB) | Denoised (27.36 dB) |
-|:-----:|:-----------------:|:-------------------:|
-| ![clean](assets/clean.png) | ![noisy](assets/noisy_sigma50.png) | ![denoised](assets/denoised_sigma50.png) |
+NAFNet trains ~4x faster and uses ~16x less GPU memory — depthwise separable convolutions and SimpleGate (gated activation) replace SwinIR's heavier Swin attention blocks. For memory-constrained inference (edge deployment, batch processing), NAFNet's footprint is the deciding factor; for absolute quality, SwinIR's 0.3 dB advantage holds.
 
-Even at sigma=50 — where the noisy input is barely recognizable (16 dB) — the fine-tuned model recovers cellular structure clearly (27 dB).
+### Methodology
 
-### Inference Latency (CPU)
-
-Benchmarked on CPU — the cost-sensitive deployment target. GPU inference is orders of magnitude faster (A100 training ran at ~0.1s/step).
-
-| Backend | 128x128 (ms) | 256x256 (ms) |
-|---------|-------------|-------------|
-| PyTorch FP32 | 12,475 | 55,933 |
-| ONNX Runtime | 5,106 | 19,842 |
-| **Speedup** | **2.3x** | **2.8x** |
-
-ONNX export succeeded (52 MB, opset 17, dynamic axes).
+Evaluation harness verified via calibration check against W2S pretrained baselines (DnCNN, MemNet) before trusting retrained model numbers. See [EVALUATION.md](EVALUATION.md) for protocol, calibration results, and test set caveats. See [DECISIONS.md](DECISIONS.md) for 11 architectural decisions with rationale. See [docs/tradeoffs.md](docs/tradeoffs.md) for 9 methodology catches across V1-V3, all caught during V3 development before shipping.
 
 ## Dataset
 
-[FMD (Fluorescence Microscopy Denoising)](https://zenodo.org/records/3713545) — a benchmark dataset of fluorescence microscopy images across multiple modalities (Confocal, Two-Photon, Wide-Field). This project uses the Confocal FISH subset with ground truth images averaged from 50 captures. Synthetic Gaussian noise at sigma 15, 25, 50 is added to create clean/noisy pairs for training and evaluation.
+[W2S (Widefield2SIM)](https://github.com/ivrl/w2s) — fluorescence microscopy benchmark with real Poisson-Gaussian noise from frame averaging. 120 FoVs x 3 wavelengths, noise levels from single-frame (avg1) to 400-frame average (avg400, clean reference). SIM ground truth at 2x resolution for super-resolution.
+
+Splits: 94 train / 13 val / 13 test FoVs. Split at FoV level (not file level) to prevent data leakage. Frozen in `inverseops/data/splits.json`.
 
 ## Inference API
 
-Three endpoints: `POST /restore`, `GET /health`, `GET /metrics`.
+Production serving layer with three endpoints: `POST /restore`, `GET /health`, `GET /metrics`. The API is model-agnostic — it loads whichever checkpoint is configured and serves inference via FastAPI. The `noise_level` parameter uses sigma indexing from the V2 synthetic-noise pipeline; for W2S avg-level models, point the API at the appropriate checkpoint directly.
 
 **Restore an image:**
 
@@ -86,7 +74,9 @@ The restored PNG is returned in the body. Structured QC metadata is in response 
 }
 ```
 
-The `noise_level` parameter selects the checkpoint trained for that sigma (15, 25, or 50). Training one specialized model per noise level produces better results than a single model covering all levels — this is visible in the +10 dB improvement at sigma=50. If `noise_level` is omitted, the system estimates it via wavelet MAD and defaults to the sigma=25 model. The `decision` field reports `good`, `review`, or `out_of_range` based on whether the input falls within the model's calibrated range.
+The `noise_level` parameter selects the checkpoint trained for that noise level. If omitted, the system estimates the noise via wavelet MAD and routes to the closest match. The `decision` field reports `good`, `review`, or `out_of_range` based on whether the input falls within the model's calibrated range.
+
+**Note on V2/V3 vocabulary:** The serving layer was built for V2's synthetic-sigma models and retains that vocabulary in field names and checkpoint identifiers (`swinir_sigma25`). The V3 W2S models work through the same API but the sigma field names are vestigial — they identify which checkpoint is loaded, not a noise model. When serving W2S models, `noise_level_sigma` in the response is a legacy label and does not correspond to a Gaussian sigma; the model is trained on frame-averaging noise levels (avg1-avg16). A future cleanup would rename these fields, but this would require coordinated changes across the API schema, the QC layer, and any downstream consumers.
 
 **Example: out-of-range input**
 
@@ -152,95 +142,54 @@ JSON structured logs with request ID correlation:
 
 ```bash
 make install
-bash scripts/download_data.sh
-make test
-make serve  # Start inference API
+make test           # 127 tests, no GPU required
+make serve          # Start inference API
+
+# For W2S training (requires Modal)
+modal run scripts/download_w2s.py   # Download dataset
+python scripts/preflight.py --data-root data/test_fixtures/w2s  # Pre-flight check
 ```
 
 ## Training
 
-Trained on Modal cloud GPU (A100) — local hardware is CPU-only, so Modal provides on-demand GPU access without managing infrastructure. The training code itself is standard PyTorch and can run on any GPU environment; Modal is just the convenient cloud target.
+Trained on Modal cloud GPU (A100). W2S data lives on a persistent Modal volume; pretrained weights are baked into the image.
 
 ```bash
 pip install modal && modal setup
 
-# SwinIR denoising (default)
-modal run --detach scripts/modal_train.py --batch-size 4
+# Download W2S data (one-time)
+modal run scripts/download_w2s.py
+
+# Run pre-flight checklist (mandatory before every GPU launch)
+python scripts/preflight.py --data-root data/test_fixtures/w2s
+
+# SwinIR denoising
+modal run --detach scripts/modal_train.py --config configs/w2s_denoise_swinir.yaml --wandb
 
 # NAFNet denoising
-modal run --detach scripts/modal_train.py --config configs/denoise_nafnet_sigma25.yaml
-
-# SwinIR SR 2x
-modal run --detach scripts/modal_train.py --config configs/sr_swinir_2x.yaml
-
-# With W&B logging
-modal secret create wandb-api-key WANDB_API_KEY=<your-key>
-modal run --detach scripts/modal_train.py --wandb
+modal run --detach scripts/modal_train.py --config configs/w2s_denoise_nafnet.yaml --wandb
 
 # Resume from checkpoint
-modal run --detach scripts/modal_train.py --batch-size 4 --resume
+modal run --detach scripts/modal_train.py --config configs/w2s_denoise_swinir.yaml --resume
 
 # Download results
-modal volume get inverseops-vol outputs/training/checkpoints/ outputs/modal_training/checkpoints/
-```
-
-Data is baked into the Modal image (no volume IO bottleneck). Supports `--preload` for in-memory dataset caching and `--resume` for checkpoint recovery.
-
-### Local
-
-```bash
-python scripts/run_training.py \
-    --config configs/denoise_swinir.yaml \
-    --preload --no-wandb
+modal volume get inverseops-vol outputs/training_w2s_swinir/ outputs/local/swinir/
 ```
 
 ## Evaluation
 
+Eval harness loads frozen splits, reports mean +/- std per noise level, calls `dataset.denormalize()` before computing PSNR/SSIM. Verified via calibration check against W2S pretrained baselines before trusting any retrained model numbers.
+
 ```bash
-# Baseline: pretrained SwinIR on microscopy
+# Evaluate retrained checkpoint
 python scripts/run_evaluation.py \
-    --microscopy-root data/raw/fmd \
-    --output-csv artifacts/baseline/baseline_metrics.csv
+    --data-root /data/w2s/data/normalized \
+    --checkpoint outputs/training_w2s_swinir/best.pt \
+    --model swinir
 
-# Compare fine-tuned vs pretrained
-python scripts/run_evaluation.py \
-    --microscopy-root data/raw/fmd/Confocal_FISH/gt \
-    --checkpoint outputs/training/checkpoints/best.pt \
-    --model-mode finetuned \
-    --output-csv artifacts/compare_finetuned/finetuned_full_metrics.csv \
-    --baseline-csv artifacts/baseline/baseline_summary.csv \
-    --no-wandb --allow-missing-datasets
+# Calibration check (W2S pretrained baselines)
+modal run scripts/modal_calibration.py
 ```
-
-### V2 Tier 2: Architecture Comparison (SwinIR vs NAFNet)
-
-We fine-tuned NAFNet-SIDD-width32 on the same FMD Confocal FISH synthetic Gaussian denoising benchmark as V1 SwinIR. Both models used identical training settings: L1 loss, AdamW optimizer, cosine LR schedule, early stopping with patience 10, batch size 4.
-
-| Model | Val PSNR | Best Epoch | Early Stop | Training Time | GPU Memory |
-|-------|----------|------------|------------|---------------|------------|
-| SwinIR (grayscale denoising pretrained) | **36.24 dB** | 16 | Epoch 16 | ~15 min | 8.7 GB |
-| NAFNet (SIDD real-noise pretrained) | 30.95 dB | 31 | Epoch 41 | ~123 min | 1.1 GB |
-
-**At matched training budget (epoch 16)**, the gap is 5.47 dB. NAFNet's additional 25 epochs of training yielded only 0.18 dB of further improvement, indicating genuine convergence rather than truncated optimization.
-
-**Interpretation.** The 5.3-5.5 dB gap reflects primarily a **pretraining task mismatch**, not an architectural difference. SwinIR's checkpoint was pretrained on additive Gaussian noise denoising — the exact task we fine-tune for, just on natural images instead of microscopy. NAFNet's SIDD checkpoint was pretrained on real smartphone noise (signal-dependent, spatially correlated, sensor-structured), which transfers poorly to unstructured Gaussian noise. Secondary contributors include the RGB→grayscale channel adaptation (NAFNet runs in RGB mode with grayscale input replicated to 3 channels) and the loss function (NAFNet's official training uses PSNR loss, not L1).
-
-**What this comparison shows:** given two pretrained image restoration models, which adapts better to grayscale microscopy denoising under identical fine-tuning conditions? SwinIR adapts much better. **What it does not show:** that SwinIR's architecture is inherently better than NAFNet's. A fair architecture-only comparison would require both models pretrained on the same task, which was outside V2 scope.
-
-**Practical lesson:** pretraining task match matters more than architecture choice for domain adaptation with limited training data. When fine-tuning from public weights, ask "what task were these weights trained on?" before "which architecture is strongest on leaderboards?"
-
-NAFNet retains advantages not visible in PSNR: ~8x lower GPU memory (1.1 GB vs 8.7 GB), simpler architecture for deployment. For memory-constrained applications, NAFNet may be preferable despite the PSNR gap.
-
-### V2 Tier 2: Real-Noise Fine-Tuning
-
-SwinIR fine-tuned on FMD real noisy/clean pairs (specimen-level splits, no synthetic noise).
-
-| Model | Noise Source | Val PSNR | Best Epoch | Early Stop |
-|-------|-------------|----------|------------|------------|
-| SwinIR (synthetic sigma=25) | Gaussian | 36.24 dB | 16 | Epoch 16 |
-| SwinIR (real-noise) | FMD Confocal | 38.89 dB | 9 | Epoch 19 |
-
-The real-noise result (38.89 dB) is not directly comparable to the synthetic result (36.24 dB) — the noise distributions differ. Real FMD confocal noise is lower-magnitude than synthetic sigma=25 Gaussian, and the averaged ground truth (50 captures) provides a cleaner target. These are separate training regimes reported side-by-side, not a leaderboard.
 
 W&B project: [inverseops](https://wandb.ai/janedoraemon-universit-t-hamburg/inverseops)
 
@@ -248,50 +197,47 @@ W&B project: [inverseops](https://wandb.ai/janedoraemon-universit-t-hamburg/inve
 
 ```
 inverseops/
-    config.py       # Config validation
-    data/           # Dataset loaders, transforms, degradations
+    config.py       # Config validation (model + dataset registry checks)
+    data/
+        w2s.py      # W2SDataset (denoise + SR, FoV-level splits)
+        splits.json # Frozen train/val/test splits (94/13/13 FoVs)
     models/         # SwinIR + NAFNet architectures and wrappers
-    training/       # Trainer with early stopping, AMP, losses
+    training/       # Trainer with early stopping, denormalized PSNR, sanity assertions
     evaluation/     # PSNR/SSIM metrics
     serving/        # FastAPI inference API with QC layer, structlog
     tracking/       # W&B integration with tags and run naming
     export/         # ONNX export utilities
 scripts/
-    modal_train.py      # Modal cloud GPU training (multi-config)
+    preflight.py        # Training readiness gate (mandatory before GPU launch)
+    modal_train.py      # Modal cloud GPU training
     run_training.py     # Local training CLI
-    run_evaluation.py   # Evaluation pipeline
-    run_onnx_export.py  # ONNX export + benchmark
-    run_latency_bench.py # PyTorch latency benchmark
+    run_evaluation.py   # Eval harness with denormalize + mean+/-std
+    modal_calibration.py # Calibration check against W2S baselines
+    download_w2s.py     # Download W2S data to Modal volume
 configs/
-    denoise_swinir.yaml          # SwinIR denoising (synthetic noise)
-    denoise_nafnet_sigma25.yaml  # NAFNet denoising (synthetic noise)
-    denoise_swinir_realnoise.yaml # SwinIR denoising (FMD real noise)
-    sr_swinir_2x.yaml            # SwinIR super-resolution 2x
-docker/
-    Dockerfile          # Inference container
-    Dockerfile.train    # GPU training container (CUDA 12.1)
-    docker-compose.yaml # Deployment + monitoring profile
-    prometheus.yaml     # Prometheus scrape config
-    grafana_dashboard.json # 4-panel API dashboard
-tests/                  # Unit and integration tests
+    w2s_denoise_swinir.yaml  # SwinIR denoising on W2S
+    w2s_denoise_nafnet.yaml  # NAFNet denoising on W2S
+    w2s_sr_swinir_2x.yaml   # SwinIR super-resolution 2x
+docker/                      # Inference + monitoring deployment
+tests/                       # 127 tests (data pipeline, metrics, training, eval harness)
 docs/
-    tradeoffs.md        # V2 design decisions
+    tradeoffs.md             # 9 methodology catches across V1-V3
+EVALUATION.md                # Eval protocol (written before results)
+DECISIONS.md                 # 11 architectural decisions with rationale
 ```
-
-**Tests:** Data pipeline determinism, PSNR/SSIM on known inputs, QC decision logic, API endpoint integration (health, restore, metrics, oversized upload rejection, NaN detection), Pydantic schema roundtrips, import sanity checks.
 
 ## References
 
 - **SwinIR**: Liang et al., [SwinIR: Image Restoration Using Swin Transformer](https://arxiv.org/abs/2108.10257), ICCVW 2021
 - **NAFNet**: Chen et al., [Simple Baselines for Image Restoration](https://arxiv.org/abs/2204.04676), ECCV 2022
-- **FMD**: Zhang et al., [A Poisson-Gaussian Denoising Dataset with Real Fluorescence Microscopy Images](https://arxiv.org/abs/1811.12751), CVPR 2019
+- **W2S**: Zhou et al., [W2S: Microscopy Data with Joint Denoising and Super-Resolution for Widefield to SIM Mapping](https://arxiv.org/abs/2003.05961), ECCVW 2020
 - **Modal**: Cloud GPU platform used for training — [modal.com](https://modal.com)
 
 ## Runtime Dependencies
 
 **Model weights:**
 - **SwinIR** pretrained weights: loaded from [official GitHub releases](https://github.com/JingyunLiang/SwinIR/releases) at build time (Apache 2.0)
-- **NAFNet** pretrained weights: mirrored to this repo's [`pretrained-weights-v1`](https://github.com/tyy0811/inverseops/releases/tag/pretrained-weights-v1) release for build stability. Original source: [megvii-research/NAFNet](https://github.com/megvii-research/NAFNet) (MIT). Mirrored because the original distribution is on Google Drive, which is not suitable for automated builds.
+- **NAFNet** pretrained weights: mirrored to this repo's [`pretrained-weights-v1`](https://github.com/tyy0811/inverseops/releases/tag/pretrained-weights-v1) release for build stability. Original source: [megvii-research/NAFNet](https://github.com/megvii-research/NAFNet) (MIT).
 
 **Datasets:**
-- **FMD**: downloaded from [Zenodo 3713545](https://zenodo.org/records/3713545) at setup time
+- **W2S**: cloned from [ivrl/w2s](https://github.com/ivrl/w2s) via `scripts/download_w2s.py`

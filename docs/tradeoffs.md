@@ -1,6 +1,157 @@
-# V2 Design Tradeoffs
+# Design Tradeoffs
 
-Decisions made during V2 implementation, with rationale and future alternatives.
+Decisions made during V1-V3 implementation, with rationale and future alternatives.
+
+## V3 Methodology Lessons (added 2026-04-10)
+
+The following entries document issues caught during V3 planning and the V2→V3
+transition. They are ordered by when they were discovered, not severity.
+
+### M1. 2-Image Evaluation Baseline
+
+**Problem:** V1 evaluated SwinIR on n=2 test images (2 captures from 1 specimen).
+The resulting "36.24 dB" headline number had no statistical meaning — no confidence
+interval, no variance estimate, no way to know if it generalizes.
+
+**Root cause:** FMD Confocal FISH has only 20 specimens. After train/val allocation,
+the test set was effectively 1-2 specimens. The dataset was too small.
+
+**Fix in V3:** W2S provides 120 FoVs. Test set is 13 FoVs x 3 wavelengths x
+5 noise levels = 195 measurements. Results reported as mean +/- std.
+
+### M2. Leaky File-Level Split
+
+**Problem:** V2's `MicroscopyDataset._compute_split_indices` split by file index,
+not by specimen. Multiple captures of the same biological structure appeared in both
+training and test sets, leaking structural information.
+
+**Root cause:** The split was implemented on filenames (which include capture index)
+rather than specimen IDs. With FMD's naming convention, this was easy to miss.
+
+**Fix in V3:** W2SDataset splits by FoV ID. All 3 wavelengths of a given FoV go
+to the same partition. Frozen in `inverseops/data/splits.json`. Test
+`test_no_fov_overlap_across_all_splits` enforces this.
+
+### M3. "Real-Noise" Misnomer
+
+**Problem:** V2's `RealNoiseMicroscopyDataset` was described as training on real
+noise. It was actually trained on synthetic Gaussian noise applied to FMD images —
+the same degradation model as the "synthetic" baseline, just with a different
+data loader path.
+
+**Root cause:** The class name was aspirational, not descriptive. No code review
+caught the gap between the name and the implementation.
+
+**Fix in V3:** W2S noise IS real — each `avg{N}` file is the average of N physical
+captures, with genuine Poisson-Gaussian noise from the microscope detector. No
+synthetic noise injection needed.
+
+### M4. AMP NaN Instability
+
+**Problem:** V2 SwinIR training with mixed precision (AMP) produced NaN losses
+after ~50 epochs. The NaN guard in `Trainer` caught and halted training, but the
+root cause was never diagnosed.
+
+**Root cause:** Likely float16 overflow in SwinIR's attention computation. SwinIR
+uses relative position bias with softmax, which is sensitive to half-precision
+accumulation.
+
+**Fix in V3:** AMP disabled for W2S training. A100 has enough memory for fp32 at
+batch_size=4, patch_size=128. If training time becomes a bottleneck, investigate
+bf16 (which has the same exponent range as fp32) rather than fp16.
+
+### M5. SwinIR SR Channel Handling (Option A vs D)
+
+**Problem:** V2 initially used SwinIR's RGB SR model (Option A: 3-channel input)
+for grayscale microscopy images. This required hacking the first conv layer's
+in_channels, losing pretrained weight compatibility.
+
+**Root cause:** SwinIR's pretrained SR weights come in multiple variants. The
+"classical SR" weights expect 3-channel RGB input. Using them for 1-channel
+grayscale required either: (A) modify the model architecture, or (D) convert
+grayscale to RGB at the boundary and use the unmodified model.
+
+**Fix in V2:** Switched to Option D — grayscale-to-RGB conversion at inference
+boundaries, unmodified RGB model with original pretrained weights. This preserves
+transfer learning quality.
+
+### M6. Wavelength-Level Pseudo-Leakage in Initial W2S Split Design
+
+**Problem:** The initial V3 plan recommended treating W2S's 3 wavelengths per FoV
+as fully independent samples for splitting purposes (360 "specimens"). This would
+have put the same physical FoV in train and test at different fluorescence channels,
+leaking morphological structure across partitions.
+
+**Root cause:** The W2S file count (360) was conflated with the FoV count (120).
+Three wavelengths image the SAME biological structure at different fluorescence
+channels — they share spatial morphology.
+
+**Fix:** Split on FoV ID (120 units), not file (360 units). All 3 wavelengths per
+FoV go to the same partition. 94 train / 13 val / 13 test FoVs.
+
+### M7. Trainer Computed PSNR on Z-Score Normalized Data
+
+**Problem:** V3 Trainer computed validation PSNR on Z-score normalized data
+(values near 0), producing inflated 120 dB "pegged" values. Early stopping
+triggered at epoch 11 because the metric was at ceiling from epoch 1 — not
+because the model converged. Both SwinIR and NAFNet checkpoints were severely
+undertrained as a result.
+
+**Root cause:** `Trainer._compute_psnr()` assumed `[0, 1]` range data and used
+`data_range=1.0`. W2S data is Z-score normalized (mean=154.54, std=66.03), so
+values center around 0. Clamping to `[0, 1]` collapsed the signal, making MSE
+near-zero and PSNR near-infinite. The 120 dB number looked "good" but was a
+methodological bug — the same failure pattern as V1's 36.24 dB on n=2 images.
+
+**Fix:** Trainer now accepts a `denormalize_fn` callable (from the dataset class)
+and calls it on predictions and targets before PSNR computation — the same
+`dataset.denormalize()` abstraction the eval harness uses. Sanity assertion added:
+val PSNR > 60 dB triggers a warning. Unit test verifies 2-epoch training on W2S
+fixture produces PSNR in 15-55 dB range.
+
+**Lesson:** Denormalization consistency between training and eval is not optional —
+both paths must call the same abstraction. Suspicious numbers are bug reports, not
+good news.
+
+### M8. Double Z-Score Normalization on Already-Normalized Data
+
+**Problem:** W2S repo's `.npy` files are pre-normalized (values near mean=0,
+std=1). `W2SDataset.__getitem__` applied Z-score normalization again, compressing
+the signal further. NAFNet val PSNR reached 70 dB — implausibly high for real
+microscopy denoising (25-40 dB is the realistic range). The >60 dB sanity
+warning fired every epoch but was not caught because training was running
+detached on Modal.
+
+**Root cause:** The plan documented W2S normalization constants (mean=154.54,
+std=66.03) and assumed these were for normalizing raw data. In reality, the W2S
+repo had already applied this normalization — the constants are for
+*denormalizing* back to original intensity space. Verified empirically via
+`modal_inspect_w2s.py`: actual `.npy` values have mean≈0, std≈1, range≈[-1, 18].
+
+**Fix:** Removed Z-score normalization from `__getitem__`. `denormalize()` still
+reverses the repo's normalization back to [0, 255]. Added empirical data
+verification step to the pipeline.
+
+**Lesson:** Verify dataset preprocessing state before applying transformations.
+Assumptions about whether data is "raw" or "preprocessed" need to be checked
+against actual values, not inferred from documentation or file format.
+
+### M9. Pre-flight Checklist Validated on Final Training Run
+
+The final SwinIR and NAFNet training runs (the ones that produced the shipped
+results) passed all pre-flight checks before launch. No sanity warnings fired
+during training. The Trainer's PSNR assertion (>60 dB = abort) was never
+triggered. Val PSNR stayed in the 30-40 dB range throughout.
+
+This is the pre-flight checklist working as designed: four previous training runs
+were wasted on bugs that the checklist would have caught. The fifth run, gated
+by the checklist, produced correct results on the first attempt. Total pre-flight
+cost: ~30 minutes. Total saved: ~6 hours of GPU compute that would have been
+wasted debugging post-hoc.
+
+---
+
+## V2 Design Tradeoffs
 
 ---
 
