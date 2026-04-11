@@ -6,6 +6,7 @@ expensive setup (dataset loading, model construction).
 
 from __future__ import annotations
 
+from inverseops.data import DATASET_REGISTRY
 from inverseops.models import MODEL_REGISTRY
 
 VALID_TASKS = {"denoise", "sr"}
@@ -43,8 +44,16 @@ def validate_config(config: dict) -> None:
             f"Supported tasks: {sorted(supported_tasks)}"
         )
 
-    # Data roots
+    # Dataset
     data_cfg = config.get("data", {})
+    dataset_name = data_cfg.get("dataset")
+    if dataset_name and dataset_name not in DATASET_REGISTRY:
+        raise ValueError(
+            f"Unknown dataset: {dataset_name!r}. "
+            f"Available: {sorted(DATASET_REGISTRY.keys())}"
+        )
+
+    # Data roots
     if not data_cfg.get("train_root"):
         raise ValueError("Config missing data.train_root")
     if not data_cfg.get("val_root"):
