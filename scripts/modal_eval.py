@@ -10,7 +10,10 @@ Usage:
         --checkpoint /vol/outputs/training_w2s_swinir/checkpoints/best.pt \
         --model swinir
 """
+
 from __future__ import annotations
+
+from pathlib import Path
 
 import modal
 
@@ -32,20 +35,28 @@ PRETRAINED_URLS = [
 
 _download_cmds = [f"mkdir -p {WEIGHTS_DIR}"] + [
     (
-        f"python -c \"import urllib.request; "
+        f'python -c "import urllib.request; '
         f"urllib.request.urlretrieve('{url}', "
         f"'{WEIGHTS_DIR}/{url.split('/')[-1]}')\""
     )
     for url in PRETRAINED_URLS
 ]
 
-from pathlib import Path
 
 def _source_ignore(path: Path) -> bool:
-    skip = {"data", ".git", "__pycache__", "outputs", "artifacts",
-            ".mypy_cache", ".pytest_cache", ".ruff_cache"}
+    skip = {
+        "data",
+        ".git",
+        "__pycache__",
+        "outputs",
+        "artifacts",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+    }
     top = path.parts[0] if path.parts else ""
     return top in skip
+
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -87,16 +98,21 @@ def run_eval(
     }
 
     cmd = [
-        sys.executable, "/app/scripts/run_evaluation.py",
-        "--data-root", "/data/w2s/data/normalized",
-        "--splits-path", "/app/inverseops/data/splits.json",
-        "--device", "cuda",
+        sys.executable,
+        "/app/scripts/run_evaluation.py",
+        "--data-root",
+        "/data/w2s/data/normalized",
+        "--splits-path",
+        "/app/inverseops/data/splits.json",
+        "--device",
+        "cuda",
     ]
 
     if calibration:
         cmd += [
             "--calibration",
-            "--calibration-dir", "/data/w2s/net_data/trained_denoisers/",
+            "--calibration-dir",
+            "/data/w2s/net_data/trained_denoisers/",
         ]
         if output_csv:
             cmd += ["--output-csv", output_csv]
@@ -105,8 +121,10 @@ def run_eval(
             print("ERROR: --checkpoint required when not using --calibration")
             return
         cmd += [
-            "--checkpoint", checkpoint,
-            "--model", model,
+            "--checkpoint",
+            checkpoint,
+            "--model",
+            model,
         ]
         if output_csv:
             cmd += ["--output-csv", output_csv]

@@ -21,7 +21,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import numpy as np
 import torch
 
 
@@ -33,8 +32,9 @@ def check_data_inspection(data_root: str, splits_path: str) -> bool:
 
     from inverseops.data.w2s import W2SDataset
 
-    ds = W2SDataset(root_dir=data_root, split="train", patch_size=0,
-                    splits_path=splits_path)
+    ds = W2SDataset(
+        root_dir=data_root, split="train", patch_size=0, splits_path=splits_path
+    )
     ds.prepare()
 
     if len(ds) == 0:
@@ -52,7 +52,11 @@ def check_data_inspection(data_root: str, splits_path: str) -> bool:
     print(f"  target shape={tgt.shape}  dtype={tgt.dtype}")
     print(f"  target min={tgt.min():.4f}  max={tgt.max():.4f}")
     print(f"  target mean={tgt.mean():.4f}  std={tgt.std():.4f}")
-    print(f"  noise_level={sample['noise_level']}  fov_id={sample['fov_id']}  wl={sample['wavelength']}")
+    print(
+        f"  noise_level={sample['noise_level']}  "
+        f"fov_id={sample['fov_id']}  "
+        f"wl={sample['wavelength']}"
+    )
 
     # Sanity: values should be in roughly [-3, 20] for pre-normalized W2S
     if inp.max() > 100 or tgt.max() > 100:
@@ -72,10 +76,11 @@ def check_roundtrip(data_root: str, splits_path: str) -> bool:
     print("CHECK 2: Denormalize roundtrip")
     print("=" * 60)
 
-    from inverseops.data.w2s import W2SDataset, W2S_MEAN, W2S_STD
+    from inverseops.data.w2s import W2S_MEAN, W2S_STD, W2SDataset
 
-    ds = W2SDataset(root_dir=data_root, split="train", patch_size=0,
-                    splits_path=splits_path)
+    ds = W2SDataset(
+        root_dir=data_root, split="train", patch_size=0, splits_path=splits_path
+    )
     ds.prepare()
 
     sample = ds[0]
@@ -149,8 +154,13 @@ def check_trainer_psnr_sanity(data_root: str, splits_path: str) -> bool:
     from inverseops.training.losses import l1_loss
     from inverseops.training.trainer import Trainer
 
-    ds = W2SDataset(root_dir=data_root, split="train", patch_size=32,
-                    avg_levels=[1], splits_path=splits_path)
+    ds = W2SDataset(
+        root_dir=data_root,
+        split="train",
+        patch_size=32,
+        avg_levels=[1],
+        splits_path=splits_path,
+    )
     ds.prepare()
 
     if len(ds) == 0:
@@ -161,6 +171,7 @@ def check_trainer_psnr_sanity(data_root: str, splits_path: str) -> bool:
     model = torch.nn.Conv2d(1, 1, 3, padding=1)
 
     import tempfile
+
     with tempfile.TemporaryDirectory() as tmp:
         trainer = Trainer(
             model=model,
@@ -198,15 +209,20 @@ def main() -> int:
         description="Training readiness gate — run before every Modal GPU launch."
     )
     parser.add_argument(
-        "--data-root", type=str, required=True,
+        "--data-root",
+        type=str,
+        required=True,
         help="Path to W2S normalized data root",
     )
     parser.add_argument(
-        "--splits-path", type=str, default="inverseops/data/splits.json",
+        "--splits-path",
+        type=str,
+        default="inverseops/data/splits.json",
         help="Path to splits.json",
     )
     parser.add_argument(
-        "--skip-smoke-train", action="store_true",
+        "--skip-smoke-train",
+        action="store_true",
         help="Skip the smoke train check",
     )
 
@@ -223,7 +239,9 @@ def main() -> int:
     results["metric_sanity"] = check_metric_sanity()
 
     if not args.skip_smoke_train:
-        results["smoke_train"] = check_trainer_psnr_sanity(args.data_root, args.splits_path)
+        results["smoke_train"] = check_trainer_psnr_sanity(
+            args.data_root, args.splits_path
+        )
 
     # Summary
     print("\n" + "=" * 60)

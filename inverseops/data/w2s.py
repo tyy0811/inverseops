@@ -32,7 +32,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset as TorchDataset
 
-
 # W2S paper normalization constants
 W2S_MEAN = 154.54
 W2S_STD = 66.03
@@ -45,6 +44,7 @@ DEFAULT_AVG_LEVELS = [1, 2, 4, 8, 16]
 @dataclass
 class W2SSample:
     """Metadata for a single W2S training sample."""
+
     fov_id: int
     wavelength: int
     avg_level: int
@@ -107,7 +107,9 @@ class W2SDataset(TorchDataset):
         fov_ids, wavelengths = self._discover_fovs()
 
         if not fov_ids:
-            raise ValueError(f"No .npy files found in {self.root_dir}/avg*/ directories")
+            raise ValueError(
+                f"No .npy files found in {self.root_dir}/avg*/ directories"
+            )
 
         # Get FoVs for this split
         split_fov_ids = self._get_split_fov_ids(sorted(fov_ids))
@@ -119,23 +121,29 @@ class W2SDataset(TorchDataset):
                     lr_path = self.root_dir / "avg400" / f"{fov_id:03d}_{wl}.npy"
                     hr_path = self.root_dir / "sim" / f"{fov_id:03d}_{wl}.npy"
                     if lr_path.exists() and hr_path.exists():
-                        self.samples.append(W2SSample(
-                            fov_id=fov_id,
-                            wavelength=wl,
-                            avg_level=400,  # LR source for SR
-                        ))
+                        self.samples.append(
+                            W2SSample(
+                                fov_id=fov_id,
+                                wavelength=wl,
+                                avg_level=400,  # LR source for SR
+                            )
+                        )
         else:
             # Denoise: one entry per (fov, wavelength, avg_level)
             for fov_id in sorted(split_fov_ids):
                 for wl in sorted(wavelengths):
                     for avg_level in self.avg_levels:
-                        npy_path = self.root_dir / f"avg{avg_level}" / f"{fov_id:03d}_{wl}.npy"
+                        npy_path = (
+                            self.root_dir / f"avg{avg_level}" / f"{fov_id:03d}_{wl}.npy"
+                        )
                         if npy_path.exists():
-                            self.samples.append(W2SSample(
-                                fov_id=fov_id,
-                                wavelength=wl,
-                                avg_level=avg_level,
-                            ))
+                            self.samples.append(
+                                W2SSample(
+                                    fov_id=fov_id,
+                                    wavelength=wl,
+                                    avg_level=avg_level,
+                                )
+                            )
 
         self._prepared = True
 
@@ -143,9 +151,19 @@ class W2SDataset(TorchDataset):
         if self.samples:
             sample = self[0]
             inp, tgt = sample["input"], sample["target"]
-            print(f"=== W2SDataset sanity ({self.split}, {len(self.samples)} samples) ===")
-            print(f"  input  range=[{inp.min():.3f}, {inp.max():.3f}]  mean={inp.mean():.3f}")
-            print(f"  target range=[{tgt.min():.3f}, {tgt.max():.3f}]  mean={tgt.mean():.3f}")
+            print(
+                f"=== W2SDataset sanity ({self.split}, {len(self.samples)} samples) ==="
+            )
+            print(
+                f"  input  range=[{inp.min():.3f}, "
+                f"{inp.max():.3f}]  "
+                f"mean={inp.mean():.3f}"
+            )
+            print(
+                f"  target range=[{tgt.min():.3f}, "
+                f"{tgt.max():.3f}]  "
+                f"mean={tgt.mean():.3f}"
+            )
 
     def _discover_fovs(self) -> tuple[set[int], set[int]]:
         """Discover FoV IDs and wavelengths from .npy filenames.
@@ -202,8 +220,8 @@ class W2SDataset(TorchDataset):
         n_val = max(1, int(n * self.val_fraction))
 
         test_ids = ids[:n_test]
-        val_ids = ids[n_test:n_test + n_val]
-        train_ids = ids[n_test + n_val:]
+        val_ids = ids[n_test : n_test + n_val]
+        train_ids = ids[n_test + n_val :]
 
         split_map = {"train": train_ids, "val": val_ids, "test": test_ids}
         if self.split not in split_map:
@@ -245,11 +263,17 @@ class W2SDataset(TorchDataset):
 
     def _getitem_denoise(self, sample: W2SSample, index: int) -> dict[str, Any]:
         # Load noisy input (pre-computed average at this noise level)
-        noisy_path = self.root_dir / f"avg{sample.avg_level}" / f"{sample.fov_id:03d}_{sample.wavelength}.npy"
+        noisy_path = (
+            self.root_dir
+            / f"avg{sample.avg_level}"
+            / f"{sample.fov_id:03d}_{sample.wavelength}.npy"
+        )
         noisy_arr = np.load(noisy_path).astype(np.float32)
 
         # Load clean reference (avg400)
-        clean_path = self.root_dir / "avg400" / f"{sample.fov_id:03d}_{sample.wavelength}.npy"
+        clean_path = (
+            self.root_dir / "avg400" / f"{sample.fov_id:03d}_{sample.wavelength}.npy"
+        )
         clean_arr = np.load(clean_path).astype(np.float32)
 
         # W2S .npy files are ALREADY Z-score normalized by the W2S repo
@@ -261,7 +285,9 @@ class W2SDataset(TorchDataset):
         if self.patch_size > 0:
             if self.training:
                 rng = np.random.default_rng((self.seed, index))
-                noisy_crop, clean_crop = self._random_crop_pair(noisy_arr, clean_arr, rng)
+                noisy_crop, clean_crop = self._random_crop_pair(
+                    noisy_arr, clean_arr, rng
+                )
             else:
                 noisy_crop, clean_crop = self._center_crop_pair(noisy_arr, clean_arr)
         else:
@@ -281,7 +307,9 @@ class W2SDataset(TorchDataset):
 
     def _getitem_sr(self, sample: W2SSample, index: int) -> dict[str, Any]:
         # Load LR input (avg400, 512x512)
-        lr_path = self.root_dir / "avg400" / f"{sample.fov_id:03d}_{sample.wavelength}.npy"
+        lr_path = (
+            self.root_dir / "avg400" / f"{sample.fov_id:03d}_{sample.wavelength}.npy"
+        )
         lr_arr = np.load(lr_path).astype(np.float32)
 
         # Load HR target (SIM ground truth, 1024x1024)
@@ -312,7 +340,10 @@ class W2SDataset(TorchDataset):
         }
 
     def _random_crop_pair(
-        self, a: np.ndarray, b: np.ndarray, rng: np.random.Generator,
+        self,
+        a: np.ndarray,
+        b: np.ndarray,
+        rng: np.random.Generator,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Random crop both arrays at the same position."""
         h, w = a.shape[:2]
@@ -323,7 +354,7 @@ class W2SDataset(TorchDataset):
             h, w = a.shape[:2]
         top = int(rng.integers(0, h - ps + 1))
         left = int(rng.integers(0, w - ps + 1))
-        return a[top:top + ps, left:left + ps], b[top:top + ps, left:left + ps]
+        return a[top : top + ps, left : left + ps], b[top : top + ps, left : left + ps]
 
     def _center_crop_pair(
         self, a: np.ndarray, b: np.ndarray
@@ -337,10 +368,13 @@ class W2SDataset(TorchDataset):
             h, w = a.shape[:2]
         top = (h - ps) // 2
         left = (w - ps) // 2
-        return a[top:top + ps, left:left + ps], b[top:top + ps, left:left + ps]
+        return a[top : top + ps, left : left + ps], b[top : top + ps, left : left + ps]
 
     def _random_crop_pair_sr(
-        self, lr: np.ndarray, hr: np.ndarray, rng: np.random.Generator,
+        self,
+        lr: np.ndarray,
+        hr: np.ndarray,
+        rng: np.random.Generator,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Random crop LR and HR at coordinated positions (2x scale)."""
         h, w = lr.shape[:2]
@@ -351,12 +385,14 @@ class W2SDataset(TorchDataset):
             h, w = lr.shape[:2]
         top = int(rng.integers(0, h - ps + 1))
         left = int(rng.integers(0, w - ps + 1))
-        lr_crop = lr[top:top + ps, left:left + ps]
-        hr_crop = hr[top * 2:(top + ps) * 2, left * 2:(left + ps) * 2]
+        lr_crop = lr[top : top + ps, left : left + ps]
+        hr_crop = hr[top * 2 : (top + ps) * 2, left * 2 : (left + ps) * 2]
         return lr_crop, hr_crop
 
     def _center_crop_pair_sr(
-        self, lr: np.ndarray, hr: np.ndarray,
+        self,
+        lr: np.ndarray,
+        hr: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Center crop LR and HR at coordinated positions (2x scale)."""
         h, w = lr.shape[:2]
@@ -367,8 +403,8 @@ class W2SDataset(TorchDataset):
             h, w = lr.shape[:2]
         top = (h - ps) // 2
         left = (w - ps) // 2
-        lr_crop = lr[top:top + ps, left:left + ps]
-        hr_crop = hr[top * 2:(top + ps) * 2, left * 2:(left + ps) * 2]
+        lr_crop = lr[top : top + ps, left : left + ps]
+        hr_crop = hr[top * 2 : (top + ps) * 2, left * 2 : (left + ps) * 2]
         return lr_crop, hr_crop
 
     def _pad(self, arr: np.ndarray, size: int) -> np.ndarray:

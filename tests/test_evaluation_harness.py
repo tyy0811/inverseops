@@ -17,7 +17,6 @@ from scripts.run_evaluation import (
 
 
 class TestPsnrTensor:
-
     def test_identical_tensors_return_inf(self):
         a = torch.randn(1, 64, 64)
         assert psnr_tensor(a, a) == float("inf")
@@ -45,12 +44,12 @@ class TestPsnrTensor:
         a_dark = torch.full((1, 64, 64), 50.0)
         p_bright = psnr_tensor(a_bright, a_bright + noise, data_range=255.0)
         p_dark = psnr_tensor(a_dark, a_dark + noise, data_range=255.0)
-        # Same noise, same fixed range — PSNR should be equal (within noise seed variation)
+        # Same noise, same fixed range -- PSNR should be
+        # equal (within noise seed variation)
         assert abs(p_bright - p_dark) < 1.0
 
 
 class TestSsimTensor:
-
     def test_identical_tensors_return_one(self):
         a = torch.randn(1, 64, 64) * 50 + 128
         s = ssim_tensor(a, a, data_range=255.0)
@@ -70,7 +69,6 @@ class TestSsimTensor:
 
 
 class TestAggregateResults:
-
     def test_per_fov_then_across_fovs(self):
         """Aggregation: per-FoV mean first, then mean +/- std across FoVs."""
         psnr = defaultdict(lambda: defaultdict(list))
@@ -109,7 +107,6 @@ class TestAggregateResults:
 
 
 class TestDatasetDataRange:
-
     def test_w2s_range_is_255(self):
         assert DATASET_DATA_RANGE["w2s"] == 255.0
 
@@ -118,7 +115,6 @@ class TestDatasetDataRange:
 
 
 class TestDatasetSampleKeys:
-
     def test_w2s_keys(self):
         group_key, unit_key = _get_sample_keys("w2s")
         assert group_key == "noise_level"

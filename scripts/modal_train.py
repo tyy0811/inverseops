@@ -180,7 +180,9 @@ def train(
             print(f"Resuming from {checkpoint}")
         else:
             print("No checkpoint found — starting fresh")
-    if pretrained_checkpoint:
+    elif pretrained_checkpoint:
+        # --resume and --pretrained-checkpoint are mutually exclusive.
+        # Resume loads full training state; pretrained loads weights only.
         pt_path = f"/vol/{pretrained_checkpoint}"
         cmd += ["--pretrained-checkpoint", pt_path]
         print(f"Transfer learning from {pt_path}")
@@ -196,7 +198,7 @@ def train(
     print(f"Config: {config_path}")
     print(f"Training: {epochs} epochs, batch_size={batch_size}, gpu=A100")
     print(f"W&B: {'enabled' if wandb else 'disabled'}")
-    print(f"Data: /data volume (inverseops-data)")
+    print("Data: /data volume (inverseops-data)")
     print("=" * 60)
     result = subprocess.run(cmd, env=env)
     print("=" * 60)

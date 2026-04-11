@@ -74,7 +74,9 @@ class IXIDataset(TorchDataset):
         import nibabel as nib
 
         # Discover NIfTI files
-        nifti_files = sorted(self.root_dir.glob("*.nii.gz")) + sorted(self.root_dir.glob("*.nii"))
+        nifti_files = sorted(self.root_dir.glob("*.nii.gz")) + sorted(
+            self.root_dir.glob("*.nii")
+        )
         if not nifti_files:
             raise ValueError(f"No NIfTI files found in {self.root_dir}")
 
@@ -99,9 +101,12 @@ class IXIDataset(TorchDataset):
             n_missing = len(missing)
             n_expected = len(split_ids)
             print(
-                f"WARNING: {n_missing}/{n_expected} split subject IDs not found on disk. "
-                f"splits.json may assume a different subject count than what was downloaded. "
-                f"Missing IDs (first 10): {sorted(missing)[:10]}"
+                f"WARNING: {n_missing}/{n_expected} split "
+                f"subject IDs not found on disk. "
+                f"splits.json may assume a different "
+                f"subject count than what was downloaded."
+                f" Missing IDs (first 10): "
+                f"{sorted(missing)[:10]}"
             )
 
         # Extract central axial slices.
@@ -144,9 +149,22 @@ class IXIDataset(TorchDataset):
             sample = self[0]
             inp, tgt = sample["input"], sample["target"]
             n_subjects = len(self.subject_ids())
-            print(f"=== IXIDataset sanity ({self.split}, {len(self._slices)} slices from {n_subjects} subjects, {mem_mb:.0f} MB) ===")
-            print(f"  input  range=[{inp.min():.3f}, {inp.max():.3f}]  mean={inp.mean():.3f}")
-            print(f"  target range=[{tgt.min():.3f}, {tgt.max():.3f}]  mean={tgt.mean():.3f}")
+            print(
+                f"=== IXIDataset sanity ({self.split}, "
+                f"{len(self._slices)} slices from "
+                f"{n_subjects} subjects, "
+                f"{mem_mb:.0f} MB) ==="
+            )
+            print(
+                f"  input  range=[{inp.min():.3f}, "
+                f"{inp.max():.3f}]  "
+                f"mean={inp.mean():.3f}"
+            )
+            print(
+                f"  target range=[{tgt.min():.3f}, "
+                f"{tgt.max():.3f}]  "
+                f"mean={tgt.mean():.3f}"
+            )
 
     def _get_split_ids(self, all_ids: list[int]) -> list[int]:
         """Get subject IDs for this split."""
@@ -164,8 +182,8 @@ class IXIDataset(TorchDataset):
         n_val = max(1, int(n * self.val_fraction))
         split_map = {
             "test": ids[:n_test],
-            "val": ids[n_test:n_test + n_val],
-            "train": ids[n_test + n_val:],
+            "val": ids[n_test : n_test + n_val],
+            "train": ids[n_test + n_val :],
         }
         return split_map[self.split]
 
@@ -206,7 +224,9 @@ class IXIDataset(TorchDataset):
         # per sample even with multi-worker DataLoaders.
         if self.patch_size > 0:
             if self.training:
-                noisy_arr, clean_arr = self._random_crop(noisy_arr, clean_arr, sample_rng)
+                noisy_arr, clean_arr = self._random_crop(
+                    noisy_arr, clean_arr, sample_rng
+                )
             else:
                 noisy_arr, clean_arr = self._center_crop(noisy_arr, clean_arr)
 
@@ -221,7 +241,9 @@ class IXIDataset(TorchDataset):
         }
 
     @staticmethod
-    def _add_rician_noise(arr: np.ndarray, sigma: float, rng: np.random.Generator) -> np.ndarray:
+    def _add_rician_noise(
+        arr: np.ndarray, sigma: float, rng: np.random.Generator
+    ) -> np.ndarray:
         """Add Rician noise to a magnitude image.
 
         Rician noise model: noisy = |clean + n_real + j*n_imag|
@@ -231,11 +253,14 @@ class IXIDataset(TorchDataset):
         """
         n_real = rng.normal(0, sigma, arr.shape).astype(np.float32)
         n_imag = rng.normal(0, sigma, arr.shape).astype(np.float32)
-        noisy = np.sqrt((arr + n_real) ** 2 + n_imag ** 2)
+        noisy = np.sqrt((arr + n_real) ** 2 + n_imag**2)
         return np.clip(noisy, 0, 1).astype(np.float32)
 
     def _random_crop(
-        self, a: np.ndarray, b: np.ndarray, rng: np.random.Generator,
+        self,
+        a: np.ndarray,
+        b: np.ndarray,
+        rng: np.random.Generator,
     ) -> tuple[np.ndarray, np.ndarray]:
         h, w = a.shape[:2]
         ps = self.patch_size
@@ -245,9 +270,11 @@ class IXIDataset(TorchDataset):
             h, w = a.shape[:2]
         top = rng.integers(0, h - ps + 1)
         left = rng.integers(0, w - ps + 1)
-        return a[top:top + ps, left:left + ps], b[top:top + ps, left:left + ps]
+        return a[top : top + ps, left : left + ps], b[top : top + ps, left : left + ps]
 
-    def _center_crop(self, a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _center_crop(
+        self, a: np.ndarray, b: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         h, w = a.shape[:2]
         ps = self.patch_size
         if h < ps or w < ps:
@@ -256,4 +283,4 @@ class IXIDataset(TorchDataset):
             h, w = a.shape[:2]
         top = (h - ps) // 2
         left = (w - ps) // 2
-        return a[top:top + ps, left:left + ps], b[top:top + ps, left:left + ps]
+        return a[top : top + ps, left : left + ps], b[top : top + ps, left : left + ps]

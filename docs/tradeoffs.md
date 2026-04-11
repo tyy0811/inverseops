@@ -278,3 +278,27 @@ wasted debugging post-hoc.
 **Why:** structlog provides native JSON output, contextvars-based request ID propagation, and processor pipelines without boilerplate. The serving API needs structured logs for observability (request ID correlation, latency tracking). stdlib logging can do this but requires significantly more configuration.
 
 **V3 alternative:** Not needed — structlog is the right tool for this use case.
+
+---
+
+## 11. Pre-Flight Checklist Produced First Clean Run on IXI (V3 Catch #11 — Positive)
+
+**What happened:** The five-check pre-flight on IXI (data inspection, denormalize
+round-trip, metric sanity, noisy-input baseline, model evaluation) passed all
+checks on the first attempt with no debugging cycles required. This is the first
+task in V3 where the pre-flight discipline paid off as designed — same checklist,
+no methodology bugs surfaced, results trustworthy on first execution.
+
+**Cost of the pre-flight:** ~15 minutes Modal compute.
+
+**Comparison:** The four W2S-era format-mismatch bugs (Z-score double normalization,
+PSNR in wrong space, data_range=255 without clipping, Trainer data_range hardcoded
+to 255 for IXI) each cost 1-4 hours of debugging when caught after the fact. The
+pre-flight insurance ratio is now empirically validated at roughly 10:1 in favor
+of running the checks.
+
+**Why this matters beyond this project:** The pre-flight checklist was written after
+a sequence of expensive failures. Every check in it was reverse-engineered from a
+real bug. The IXI clean run shows that the checklist transfers to new datasets
+without modification — the checks are task-generic (data range, normalization
+round-trip, metric sanity), not dataset-specific. The discipline is portable.

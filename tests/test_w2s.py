@@ -39,7 +39,9 @@ def _create_w2s_fixture(
                 noise_scale = 0.3 / max(level, 1)
                 rng = np.random.default_rng(fov * 100 + wl * 10 + level)
                 arr = rng.normal(0, 1.0, (img_size, img_size)).astype(np.float32)
-                arr += rng.normal(0, noise_scale, (img_size, img_size)).astype(np.float32)
+                arr += rng.normal(0, noise_scale, (img_size, img_size)).astype(
+                    np.float32
+                )
                 np.save(level_dir / f"{fov:03d}_{wl}.npy", arr)
 
     # SIM HR ground truth (2x resolution, also pre-normalized)
@@ -59,7 +61,6 @@ def _create_w2s_fixture(
 
 
 class TestW2SDataset:
-
     def test_discovers_fovs(self):
         """Dataset discovers all FoVs from .npy files."""
         from inverseops.data.w2s import W2SDataset
@@ -87,8 +88,9 @@ class TestW2SDataset:
 
             train_fovs = set(train_ds.fov_ids())
             test_fovs = set(test_ds.fov_ids())
-            assert train_fovs.isdisjoint(test_fovs), \
+            assert train_fovs.isdisjoint(test_fovs), (
                 f"FoV leakage: {train_fovs & test_fovs}"
+            )
 
     def test_frozen_splits_from_json(self):
         """Dataset uses splits.json when it exists."""
@@ -125,7 +127,13 @@ class TestW2SDataset:
             ds.prepare()
             item = ds[0]
 
-            assert set(item.keys()) == {"input", "target", "noise_level", "fov_id", "wavelength"}
+            assert set(item.keys()) == {
+                "input",
+                "target",
+                "noise_level",
+                "fov_id",
+                "wavelength",
+            }
             assert item["input"].shape == (1, 32, 32)
             assert item["target"].shape == (1, 32, 32)
             assert item["input"].dtype == torch.float32
@@ -176,7 +184,9 @@ class TestW2SDataset:
                 json.dump(splits, f)
 
             ds = W2SDataset(
-                root_dir=root, split="train", avg_levels=[1],
+                root_dir=root,
+                split="train",
+                avg_levels=[1],
                 splits_path=splits_path,
             )
             ds.prepare()
@@ -202,10 +212,9 @@ class TestW2SDataset:
             denorm = ds.denormalize(item["target"])
             assert denorm.mean() > 100  # Should be near W2S_MEAN=154.54
 
-
     def test_denormalize_roundtrip(self):
         """denormalize(normalize(x)) recovers original values."""
-        from inverseops.data.w2s import W2SDataset, W2S_MEAN, W2S_STD
+        from inverseops.data.w2s import W2S_MEAN, W2S_STD, W2SDataset
 
         original = torch.tensor([154.54, 200.0, 100.0])
         normalized = (original - W2S_MEAN) / W2S_STD
@@ -214,7 +223,6 @@ class TestW2SDataset:
 
 
 class TestW2SDatasetSR:
-
     def test_sr_returns_2x_target(self):
         """SR mode: input is LR (patch_size), target is HR (2x patch_size)."""
         from inverseops.data.w2s import W2SDataset
@@ -244,7 +252,9 @@ class TestW2SDatasetSR:
                 json.dump(splits, f)
 
             ds = W2SDataset(
-                root_dir=root, split="train", task="sr",
+                root_dir=root,
+                split="train",
+                task="sr",
                 splits_path=splits_path,
             )
             ds.prepare()
@@ -265,7 +275,7 @@ class TestW2SDatasetSR:
 
 
 class TestW2SRegistry:
-
     def test_w2s_in_registry(self):
         from inverseops.data import DATASET_REGISTRY
+
         assert "w2s" in DATASET_REGISTRY

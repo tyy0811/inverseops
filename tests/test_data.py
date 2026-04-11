@@ -1,6 +1,5 @@
 """Day 2 tests for data loading and degradation utilities."""
 
-import tempfile
 from pathlib import Path
 
 import numpy as np

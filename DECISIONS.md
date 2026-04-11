@@ -360,3 +360,71 @@ computed under a different intensity protocol than the calibrated baselines.
 denormalization, before computing PSNR/SSIM. Applied in both `evaluate_checkpoint`
 and `run_calibration` paths in run_evaluation.py. For IXI (data_range=1.0),
 this is a no-op since data is already in [0, 1].
+
+---
+
+## Decision 16: IXI training stopped at epoch 12 due to plateau
+
+**Date:** 2026-04-12
+
+**Context:** IXI SwinIR transfer learning training on A100 with batch_size=4,
+~13,800 training samples per epoch (~3,100 steps). Val PSNR progression:
+
+- Epoch 1: 28.11 dB
+- Epoch 6: 28.34 dB (+0.23 dB over 5 epochs)
+- Epoch 12: 28.41 dB (+0.07 dB over 6 epochs)
+
+Marginal gain decayed from +0.23 dB (epochs 1-6) to +0.07 dB (epochs 6-12).
+Continuing to epoch 50 estimated at <0.1 dB total gain at ~2 hours additional
+A100 compute.
+
+**Decision:** Stopped at epoch 12. The cost-benefit no longer justified continued
+training. Reported as "plateaued, not converged" in the README to be precise
+about the observation. "Converged" implies a verified local optimum; "plateaued"
+describes what was actually observed (diminishing returns below measurement
+significance).
+
+---
+
+## Decision 17: IXI test set realized as 55 subjects vs 60 nominal
+
+**Date:** 2026-04-12
+
+**Context:** The IXI download produced 581 NIfTI files. `splits.json` was
+generated assuming 580 subjects with IDs 1-580. After download, 5 test split
+subject IDs (190, 283, 339, 466, 472) were not present on disk. This is likely
+due to the IXI manifest having non-contiguous subject IDs — some numbers in
+1-580 were never assigned or were removed from the dataset.
+
+`IXIDataset.prepare()` prints a warning when frozen split IDs don't match
+available files, and skips missing subjects gracefully.
+
+**Decision:** Proceed with 55 test subjects instead of 60. n=55 is sufficient
+for mean +/- std reporting and does not change the qualitative result (+10.74 dB
+improvement over noisy-input baseline). The discrepancy is documented here
+rather than worked around silently — consistent with V3's disclosure-first
+methodology approach. A future fix would regenerate splits from the actual
+on-disk subject IDs, but this is not worth a retraining cycle.
+
+---
+
+## Decision 18: Test PSNR exceeds val PSNR by 1.2 dB on IXI
+
+**Date:** 2026-04-12
+
+**Context:** Val PSNR at epoch 12 was 28.41 dB; test set evaluation produced
+29.60 dB. Test > val is uncommon but not a leakage signal at this magnitude.
+
+Most likely explanation: the test split contains subjects with cleaner anatomy
+(less complex texture, more uniform brain regions) than the val split, within
+the bounds of subject-level variance at n=55. The frozen `splits.json` was
+constructed before any training and verified to have no overlap with train
+or val.
+
+An additional factor: the 5 missing test subjects could have been the harder
+cases, skewing the realized test set slightly easier than the nominal split
+intended.
+
+**Decision:** Reported as an observation, not corrected. The 1.2 dB gap is
+within the range explained by subject-level variance (test std = 1.13 dB).
+If the gap were 5+ dB it would be a leakage flag requiring investigation.

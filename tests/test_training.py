@@ -7,7 +7,6 @@ from unittest import mock
 import numpy as np
 import pytest
 import torch
-from PIL import Image
 from torch.utils.data import DataLoader, TensorDataset
 
 
@@ -494,9 +493,8 @@ class TestDenormalizedPSNR:
 
     def test_psnr_plausible_with_denormalize(self, tmp_path):
         """Train 2 epochs on W2S-like Z-score data, verify val PSNR is 15-55 dB."""
-        import tempfile
 
-        from inverseops.data.w2s import W2SDataset, W2S_MEAN, W2S_STD
+        from inverseops.data.w2s import W2SDataset
         from inverseops.training.losses import l1_loss
         from inverseops.training.trainer import Trainer
 

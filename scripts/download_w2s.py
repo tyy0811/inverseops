@@ -8,6 +8,7 @@ downloading the raw ZIP, since we only need the pre-computed averages.
 Usage:
     modal run scripts/download_w2s.py
 """
+
 from __future__ import annotations
 
 import modal
@@ -61,7 +62,9 @@ def download():
         # Partial clone exists — recover instead of failing
         print(f"Partial clone detected at {target}. Recovering via fetch + LFS pull...")
         subprocess.run(["git", "-C", target, "fetch", "--all"], check=True)
-        subprocess.run(["git", "-C", target, "reset", "--hard", "origin/HEAD"], check=True)
+        subprocess.run(
+            ["git", "-C", target, "reset", "--hard", "origin/HEAD"], check=True
+        )
         subprocess.run(["git", "-C", target, "lfs", "pull"], check=True)
     elif os.path.exists(target):
         # Directory exists but is not a git repo — remove and re-clone

@@ -11,8 +11,11 @@ Picks one test FoV, runs both models, saves:
 Usage:
     modal run scripts/modal_generate_figure.py
 """
+
 from __future__ import annotations
+
 from pathlib import Path
+
 import modal
 
 app = modal.App("inverseops-figure")
@@ -29,20 +32,41 @@ PRETRAINED_URLS = [
     "https://github.com/tyy0811/inverseops/releases/download/pretrained-weights-v1/NAFNet-SIDD-width32.pth",
 ]
 _download_cmds = [f"mkdir -p {WEIGHTS_DIR}"] + [
-    f"python -c \"import urllib.request; urllib.request.urlretrieve('{url}', '{WEIGHTS_DIR}/{url.split('/')[-1]}')\""
+    (
+        f'python -c "import urllib.request; '
+        f"urllib.request.urlretrieve('{url}', "
+        f"'{WEIGHTS_DIR}/{url.split('/')[-1]}')\""
+    )
     for url in PRETRAINED_URLS
 ]
 
+
 def _source_ignore(path: Path) -> bool:
-    skip = {"data", ".git", "__pycache__", "outputs", "artifacts",
-            ".mypy_cache", ".pytest_cache", ".ruff_cache"}
+    skip = {
+        "data",
+        ".git",
+        "__pycache__",
+        "outputs",
+        "artifacts",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+    }
     top = path.parts[0] if path.parts else ""
     return top in skip
 
+
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("torch>=2.0", "timm>=0.9.0", "numpy>=1.24", "pillow>=10.0",
-                 "pydantic>=2.0", "pyyaml>=6.0", "matplotlib>=3.7")
+    .pip_install(
+        "torch>=2.0",
+        "timm>=0.9.0",
+        "numpy>=1.24",
+        "pillow>=10.0",
+        "pydantic>=2.0",
+        "pyyaml>=6.0",
+        "matplotlib>=3.7",
+    )
     .run_commands(*_download_cmds)
     .add_local_dir(".", remote_path="/app", ignore=_source_ignore)
 )
@@ -60,6 +84,7 @@ def generate():
     import sys
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
@@ -93,12 +118,38 @@ def generate():
     print(f"Selected FoV {fov_id}, wavelength {wl} (std={best_std:.4f})")
 
     # Load images
-    noisy_npy = np.load(data_root / "avg1" / f"{fov_id:03d}_{wl}.npy").astype(np.float32)
-    clean_npy = np.load(data_root / "avg400" / f"{fov_id:03d}_{wl}.npy").astype(np.float32)
-    sim_npy = np.load(data_root / ".." / ".." / "data" / "normalized" / ".." / ".." / "data" / "normalized" / "sim" / f"{fov_id:03d}_{wl}.npy").astype(np.float32) if (data_root / "sim" / f"{fov_id:03d}_{wl}.npy").exists() else None
+    noisy_npy = np.load(data_root / "avg1" / f"{fov_id:03d}_{wl}.npy").astype(
+        np.float32
+    )
+    clean_npy = np.load(data_root / "avg400" / f"{fov_id:03d}_{wl}.npy").astype(
+        np.float32
+    )
+    sim_npy = (
+        np.load(
+            data_root
+            / ".."
+            / ".."
+            / "data"
+            / "normalized"
+            / ".."
+            / ".."
+            / "data"
+            / "normalized"
+            / "sim"
+            / f"{fov_id:03d}_{wl}.npy"
+        ).astype(np.float32)
+        if (data_root / "sim" / f"{fov_id:03d}_{wl}.npy").exists()
+        else None
+    )
 
     # Try loading SIM from the right path
-    sim_path = data_root.parent.parent / "data" / "normalized" / "sim" / f"{fov_id:03d}_{wl}.npy"
+    sim_path = (
+        data_root.parent.parent
+        / "data"
+        / "normalized"
+        / "sim"
+        / f"{fov_id:03d}_{wl}.npy"
+    )
     if not sim_path.exists():
         sim_path = data_root / "sim" / f"{fov_id:03d}_{wl}.npy"
     if sim_path.exists():
@@ -117,7 +168,9 @@ def generate():
     sim_display = to_display(sim_npy) if sim_npy is not None else None
 
     # Run models
-    noisy_tensor = torch.from_numpy(noisy_npy).unsqueeze(0).unsqueeze(0).float().to(device)
+    noisy_tensor = (
+        torch.from_numpy(noisy_npy).unsqueeze(0).unsqueeze(0).float().to(device)
+    )
 
     results = {}
     for model_name, ckpt_path in [
@@ -137,7 +190,11 @@ def generate():
             output = model(noisy_tensor).squeeze().cpu().numpy()
 
         results[model_name] = to_display(output)
-        print(f"{model_name} output range: [{results[model_name].min():.1f}, {results[model_name].max():.1f}]")
+        print(
+            f"{model_name} output range: "
+            f"[{results[model_name].min():.1f}, "
+            f"{results[model_name].max():.1f}]"
+        )
 
     # Crop to a 256x256 region with interesting structure
     # Find the region with highest variance in the clean image
@@ -146,15 +203,15 @@ def generate():
     best_y, best_x, best_var = 0, 0, 0
     for y in range(0, h - ps, 32):
         for x in range(0, w - ps, 32):
-            v = clean_display[y:y+ps, x:x+ps].var()
+            v = clean_display[y : y + ps, x : x + ps].var()
             if v > best_var:
                 best_y, best_x, best_var = y, x, v
 
     cy, cx = best_y, best_x
-    print(f"Crop region: ({cy}, {cx}) to ({cy+ps}, {cx+ps})")
+    print(f"Crop region: ({cy}, {cx}) to ({cy + ps}, {cx + ps})")
 
     def crop(img, scale=1):
-        return img[cy*scale:(cy+ps)*scale, cx*scale:(cx+ps)*scale]
+        return img[cy * scale : (cy + ps) * scale, cx * scale : (cx + ps) * scale]
 
     # Build figure
     has_sim = sim_display is not None
@@ -183,7 +240,9 @@ def generate():
 
     plt.suptitle(
         f"W2S Fluorescence Microscopy Denoising — FoV {fov_id}, Wavelength {wl}",
-        fontsize=13, fontweight="bold", y=0.98,
+        fontsize=13,
+        fontweight="bold",
+        y=0.98,
     )
     plt.tight_layout()
 
@@ -196,6 +255,7 @@ def generate():
 
     # Also save individual images for flexibility
     from PIL import Image
+
     for name, img in panels:
         clean_name = name.split("(")[0].strip().lower().replace(" ", "_")
         pil = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), mode="L")

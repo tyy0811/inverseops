@@ -280,13 +280,19 @@ class Trainer:
             # run_evaluation.py so checkpoint selection optimizes the
             # same metric that gets reported.
             if self.denormalize_fn is not None:
-                outputs_for_psnr = self.denormalize_fn(outputs).clamp(0, self.data_range)
-                targets_for_psnr = self.denormalize_fn(targets).clamp(0, self.data_range)
+                outputs_for_psnr = self.denormalize_fn(outputs).clamp(
+                    0, self.data_range
+                )
+                targets_for_psnr = self.denormalize_fn(targets).clamp(
+                    0, self.data_range
+                )
             else:
                 outputs_for_psnr = outputs.clamp(0, self.data_range)
                 targets_for_psnr = targets.clamp(0, self.data_range)
 
-            psnr = self._compute_psnr(outputs_for_psnr, targets_for_psnr, self.data_range)
+            psnr = self._compute_psnr(
+                outputs_for_psnr, targets_for_psnr, self.data_range
+            )
 
             total_loss += loss.item()
             total_psnr += psnr
@@ -315,7 +321,10 @@ class Trainer:
         return mean_loss, mean_psnr
 
     def _compute_psnr(
-        self, pred: torch.Tensor, target: torch.Tensor, data_range: float = 255.0,
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        data_range: float = 255.0,
     ) -> float:
         """Compute PSNR between prediction and target tensors.
 

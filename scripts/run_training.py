@@ -19,6 +19,7 @@ import numpy as np
 import torch
 import yaml
 from torch.optim.lr_scheduler import CosineAnnealingLR
+
 from inverseops.config import validate_config
 from inverseops.models import build_model
 from inverseops.tracking.experiment import (
@@ -86,7 +87,8 @@ def load_config(config_path: Path) -> dict:
 
 
 def build_dataloaders(
-    config: dict, preload: bool = False,
+    config: dict,
+    preload: bool = False,
 ) -> tuple:
     """Build train and validation DataLoaders from config.
 
@@ -103,7 +105,13 @@ def build_dataloaders(
     # build_dataset handles registry lookup, kwarg forwarding, and prepare()
     train_dataset = build_dataset(config, split="train", training=True)
     val_dataset = build_dataset(
-        {**config, "data": {**data_cfg, "train_root": data_cfg.get("val_root", data_cfg["train_root"])}},
+        {
+            **config,
+            "data": {
+                **data_cfg,
+                "train_root": data_cfg.get("val_root", data_cfg["train_root"]),
+            },
+        },
         split="val",
         training=False,
     )
@@ -137,7 +145,9 @@ def build_dataloaders(
     # Subset wraps the dataset, so unwrap if needed.
     from inverseops.data import DATASET_DATA_RANGE
 
-    raw_val_dataset = val_dataset.dataset if hasattr(val_dataset, "dataset") else val_dataset
+    raw_val_dataset = (
+        val_dataset.dataset if hasattr(val_dataset, "dataset") else val_dataset
+    )
     denormalize_fn = getattr(raw_val_dataset, "denormalize", None)
     dataset_name = data_cfg.get("dataset", "w2s")
     data_range = DATASET_DATA_RANGE.get(dataset_name, 255.0)
@@ -295,7 +305,9 @@ def main() -> int:
 
     # Build data loaders
     print("\nBuilding datasets...")
-    train_loader, val_loader, denormalize_fn, data_range = build_dataloaders(config, preload=args.preload)
+    train_loader, val_loader, denormalize_fn, data_range = build_dataloaders(
+        config, preload=args.preload
+    )
 
     # Build model
     print("\nBuilding model...")
@@ -343,11 +355,15 @@ def main() -> int:
     # Transfer learning: load model weights only (reset optimizer/epoch)
     if args.pretrained_checkpoint:
         if not args.pretrained_checkpoint.exists():
-            print(f"Error: Pretrained checkpoint not found: {args.pretrained_checkpoint}")
+            print(
+                f"Error: Pretrained checkpoint not found: {args.pretrained_checkpoint}"
+            )
             return 1
 
         print(f"Transfer learning from {args.pretrained_checkpoint}")
-        checkpoint = torch.load(args.pretrained_checkpoint, map_location=device, weights_only=False)
+        checkpoint = torch.load(
+            args.pretrained_checkpoint, map_location=device, weights_only=False
+        )
         model.load_state_dict(checkpoint["model_state_dict"])
         print("Loaded model weights (optimizer/epoch reset for fine-tuning)")
 
@@ -410,31 +426,31 @@ def main() -> int:
     with open(summary_path) as f:
         saved_summary = json.load(f)
 
-    saved_summary.update({
-        "run_name": run_name,
-        "config_path": str(args.config),
-        "resolved_output_dir": str(output_dir),
-        "best_checkpoint_path": str(output_dir / "checkpoints" / "best.pt"),
-        "latest_checkpoint_path": str(output_dir / "checkpoints" / "latest.pt"),
-        "train_time_seconds": round(wall_seconds, 2),
-        "train_time_minutes": round(wall_seconds / 60, 2),
-        "device": device,
-        "amp_enabled": trainer.use_amp,
-        "seed": config["seed"],
-        "batch_size": config["data"]["batch_size"],
-        "train_sigmas": config["data"]["sigmas"],
-        "learning_rate": train_cfg["learning_rate"],
-        "weight_decay": train_cfg["weight_decay"],
-        "scheduler_name": config["scheduler"]["name"],
-        "wandb_enabled": wandb_enabled,
-        "wandb_project": wandb_project,
-        "wandb_run_name": run_name,
-        "max_gpu_memory_mb": (
-            round(max_gpu_memory_mb, 1)
-            if max_gpu_memory_mb is not None
-            else None
-        ),
-    })
+    saved_summary.update(
+        {
+            "run_name": run_name,
+            "config_path": str(args.config),
+            "resolved_output_dir": str(output_dir),
+            "best_checkpoint_path": str(output_dir / "checkpoints" / "best.pt"),
+            "latest_checkpoint_path": str(output_dir / "checkpoints" / "latest.pt"),
+            "train_time_seconds": round(wall_seconds, 2),
+            "train_time_minutes": round(wall_seconds / 60, 2),
+            "device": device,
+            "amp_enabled": trainer.use_amp,
+            "seed": config["seed"],
+            "batch_size": config["data"]["batch_size"],
+            "train_sigmas": config["data"]["sigmas"],
+            "learning_rate": train_cfg["learning_rate"],
+            "weight_decay": train_cfg["weight_decay"],
+            "scheduler_name": config["scheduler"]["name"],
+            "wandb_enabled": wandb_enabled,
+            "wandb_project": wandb_project,
+            "wandb_run_name": run_name,
+            "max_gpu_memory_mb": (
+                round(max_gpu_memory_mb, 1) if max_gpu_memory_mb is not None else None
+            ),
+        }
+    )
 
     with open(summary_path, "w") as f:
         json.dump(saved_summary, f, indent=2)
@@ -442,6 +458,7 @@ def main() -> int:
     # Log summary to W&B before finishing
     if wandb_enabled:
         import wandb
+
         for k, v in saved_summary.items():
             if isinstance(v, (int, float, bool, str)) or v is None:
                 wandb.run.summary[k] = v  # type: ignore[union-attr]
@@ -464,14 +481,12 @@ def main() -> int:
 
     # Print success summary
     gpu_str = (
-        f"{max_gpu_memory_mb:.1f} MB"
-        if max_gpu_memory_mb is not None
-        else "N/A (CPU)"
+        f"{max_gpu_memory_mb:.1f} MB" if max_gpu_memory_mb is not None else "N/A (CPU)"
     )
     print(f"\nRun: {run_name}")
     print(f"Best checkpoint: {output_dir / 'checkpoints' / 'best.pt'}")
-    best_psnr = saved_summary['best_val_psnr']
-    best_ep = saved_summary['best_epoch']
+    best_psnr = saved_summary["best_val_psnr"]
+    best_ep = saved_summary["best_epoch"]
     print(f"Best val PSNR: {best_psnr:.2f} dB (epoch {best_ep})")
     print(f"Training time: {wall_seconds / 60:.1f} min")
     print(f"Peak GPU memory: {gpu_str}")

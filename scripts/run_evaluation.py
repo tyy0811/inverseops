@@ -52,14 +52,15 @@ import torch
 # ---------------------------------------------------------------------------
 # Tensor-based metrics (float data, fixed data range)
 # ---------------------------------------------------------------------------
-
 # Import the canonical data range mapping from the data registry.
 # Single source of truth — also used by the Trainer for validation PSNR.
 from inverseops.data import DATASET_DATA_RANGE
 
 
 def psnr_tensor(
-    reference: torch.Tensor, prediction: torch.Tensor, data_range: float = 255.0,
+    reference: torch.Tensor,
+    prediction: torch.Tensor,
+    data_range: float = 255.0,
 ) -> float:
     """Compute PSNR between two tensors.
 
@@ -158,7 +159,8 @@ def evaluate_checkpoint(
 ) -> dict:
     """Evaluate a single checkpoint on the test split.
 
-    Returns dict of {group: {"psnr_mean", "psnr_std", "ssim_mean", "ssim_std", "n_units"}}.
+    Returns dict of {group: {"psnr_mean", "psnr_std",
+    "ssim_mean", "ssim_std", "n_units"}}.
     Group is noise_level for W2S, sigma for IXI.
     """
     from inverseops.data import build_dataset
@@ -246,12 +248,10 @@ def _aggregate_results(
     for group in sorted(psnr_by_group_unit.keys()):
         # Per-unit mean (e.g., average across wavelengths within each FoV)
         unit_psnrs = [
-            np.mean(psnr_list)
-            for psnr_list in psnr_by_group_unit[group].values()
+            np.mean(psnr_list) for psnr_list in psnr_by_group_unit[group].values()
         ]
         unit_ssims = [
-            np.mean(ssim_list)
-            for ssim_list in ssim_by_group_unit[group].values()
+            np.mean(ssim_list) for ssim_list in ssim_by_group_unit[group].values()
         ]
 
         results[group] = {
@@ -264,7 +264,9 @@ def _aggregate_results(
     return results
 
 
-def _print_results(results: dict, model_name: str, group_key: str = "noise_level") -> None:
+def _print_results(
+    results: dict, model_name: str, group_key: str = "noise_level"
+) -> None:
     group_label = "Noise Level" if group_key == "noise_level" else "Condition"
     print(f"\n{'=' * 65}")
     print(f"Results: {model_name}")
@@ -290,18 +292,30 @@ def _write_csv(results: dict, model_name: str, output_csv: str) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "model", "condition", "psnr_mean", "psnr_std",
-            "ssim_mean", "ssim_std", "n_units",
-        ])
+        writer.writerow(
+            [
+                "model",
+                "condition",
+                "psnr_mean",
+                "psnr_std",
+                "ssim_mean",
+                "ssim_std",
+                "n_units",
+            ]
+        )
         for group in sorted(results.keys()):
             r = results[group]
-            writer.writerow([
-                model_name, group,
-                f"{r['psnr_mean']:.4f}", f"{r['psnr_std']:.4f}",
-                f"{r['ssim_mean']:.6f}", f"{r['ssim_std']:.6f}",
-                r["n_units"],
-            ])
+            writer.writerow(
+                [
+                    model_name,
+                    group,
+                    f"{r['psnr_mean']:.4f}",
+                    f"{r['psnr_std']:.4f}",
+                    f"{r['ssim_mean']:.6f}",
+                    f"{r['ssim_std']:.6f}",
+                    r["n_units"],
+                ]
+            )
     print(f"Results written to {output_csv}")
 
 
@@ -323,9 +337,12 @@ def run_calibration(
     """
     if dataset_name != "w2s":
         print(
-            f"ERROR: Calibration is only supported for W2S (got --dataset {dataset_name}). "
-            f"W2S pretrained baselines (DnCNN, MemNet, RIDNet) are dataset-specific. "
-            f"Use --checkpoint to evaluate retrained models on other datasets."
+            f"ERROR: Calibration is only supported for W2S "
+            f"(got --dataset {dataset_name}). "
+            f"W2S pretrained baselines (DnCNN, MemNet, "
+            f"RIDNet) are dataset-specific. Use "
+            f"--checkpoint to evaluate retrained models "
+            f"on other datasets."
         )
         sys.exit(1)
 
@@ -367,8 +384,12 @@ def run_calibration(
     for model_name, prefix in model_prefixes.items():
         print(f"\n--- Calibration: {model_name} ---")
 
-        psnr_by_level_fov: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
-        ssim_by_level_fov: dict[int, dict[int, list[float]]] = defaultdict(lambda: defaultdict(list))
+        psnr_by_level_fov: dict[int, dict[int, list[float]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
+        ssim_by_level_fov: dict[int, dict[int, list[float]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
 
         for noise_level in w2s_noise_levels:
             model_dir = cal_dir / f"{prefix}_{noise_level}"
@@ -400,8 +421,13 @@ def run_calibration(
                 if isinstance(ckpt, torch.nn.Module):
                     model = ckpt.to(device)
                 else:
-                    print(f"  WARNING: Cannot auto-load {model_name} architecture. "
-                          f"Checkpoint is a state_dict — need model definition from W2S repo.")
+                    print(
+                        f"  WARNING: Cannot auto-load "
+                        f"{model_name} architecture. "
+                        f"Checkpoint is a state_dict "
+                        f"-- need model definition "
+                        f"from W2S repo."
+                    )
                     continue
 
                 model.eval()
@@ -420,8 +446,12 @@ def run_calibration(
 
                     output = model(inp).squeeze(0).cpu()
 
-                    output_denorm = test_dataset.denormalize(output).clamp(0, data_range)
-                    target_denorm = test_dataset.denormalize(target).clamp(0, data_range)
+                    output_denorm = test_dataset.denormalize(output).clamp(
+                        0, data_range
+                    )
+                    target_denorm = test_dataset.denormalize(target).clamp(
+                        0, data_range
+                    )
 
                     p = psnr_tensor(target_denorm, output_denorm, data_range=data_range)
                     s = ssim_tensor(target_denorm, output_denorm, data_range=data_range)
@@ -434,12 +464,17 @@ def run_calibration(
         all_results[model_name] = results
 
         for noise_level, r in sorted(results.items()):
-            all_csv_rows.append([
-                f"W2S-{model_name}", noise_level,
-                f"{r['psnr_mean']:.4f}", f"{r['psnr_std']:.4f}",
-                f"{r['ssim_mean']:.6f}", f"{r['ssim_std']:.6f}",
-                r["n_units"],
-            ])
+            all_csv_rows.append(
+                [
+                    f"W2S-{model_name}",
+                    noise_level,
+                    f"{r['psnr_mean']:.4f}",
+                    f"{r['psnr_std']:.4f}",
+                    f"{r['ssim_mean']:.6f}",
+                    f"{r['ssim_std']:.6f}",
+                    r["n_units"],
+                ]
+            )
 
     # Fail loudly if no calibration results were produced — a silent
     # empty run is worse than a crash because it looks like a pass.
@@ -457,8 +492,10 @@ def run_calibration(
     for model_name, results in all_results.items():
         if results and len(results) < n_expected_levels:
             print(
-                f"WARNING: {model_name} calibration covers {len(results)}/{n_expected_levels} "
-                f"noise levels — some checkpoints may be missing."
+                f"WARNING: {model_name} calibration covers "
+                f"{len(results)}/{n_expected_levels} "
+                f"noise levels -- some checkpoints "
+                f"may be missing."
             )
 
     if output_csv:
@@ -466,10 +503,17 @@ def run_calibration(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow([
-                "model", "condition", "psnr_mean", "psnr_std",
-                "ssim_mean", "ssim_std", "n_units",
-            ])
+            writer.writerow(
+                [
+                    "model",
+                    "condition",
+                    "psnr_mean",
+                    "psnr_std",
+                    "ssim_mean",
+                    "ssim_std",
+                    "n_units",
+                ]
+            )
             for row in all_csv_rows:
                 writer.writerow(row)
         print(f"\nCalibration results written to {output_csv}")
@@ -479,42 +523,62 @@ def run_calibration(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Evaluate denoising models on test split (W2S, IXI, or other registered datasets)."
+        description=(
+            "Evaluate denoising models on test split "
+            "(W2S, IXI, or other registered datasets)."
+        )
     )
     parser.add_argument(
-        "--data-root", type=str, required=True,
+        "--data-root",
+        type=str,
+        required=True,
         help="Path to dataset root (e.g. /data/w2s/data/normalized or /data/ixi/T1)",
     )
     parser.add_argument(
-        "--checkpoint", type=str, default=None,
+        "--checkpoint",
+        type=str,
+        default=None,
         help="Path to model checkpoint (.pt)",
     )
     parser.add_argument(
-        "--model", type=str, default="swinir",
+        "--model",
+        type=str,
+        default="swinir",
         help="Model name (swinir, nafnet)",
     )
     parser.add_argument(
-        "--dataset", type=str, default="w2s",
+        "--dataset",
+        type=str,
+        default="w2s",
         help="Dataset name for registry lookup",
     )
     parser.add_argument(
-        "--splits-path", type=str, default="inverseops/data/splits.json",
+        "--splits-path",
+        type=str,
+        default="inverseops/data/splits.json",
         help="Path to splits.json",
     )
     parser.add_argument(
-        "--output-csv", type=str, default=None,
+        "--output-csv",
+        type=str,
+        default=None,
         help="Path to write CSV results",
     )
     parser.add_argument(
-        "--calibration", action="store_true",
+        "--calibration",
+        action="store_true",
         help="Run W2S pretrained baselines for calibration check",
     )
     parser.add_argument(
-        "--calibration-dir", type=str, default=None,
+        "--calibration-dir",
+        type=str,
+        default=None,
         help="Path to W2S net_data/trained_denoisers/ directory",
     )
     parser.add_argument(
-        "--device", type=str, default=None,
+        "--device",
+        type=str,
+        default=None,
         help="Device (cuda or cpu, auto-detected if omitted)",
     )
 

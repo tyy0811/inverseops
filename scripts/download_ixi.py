@@ -9,6 +9,7 @@ Idempotent: safe to re-run after partial downloads or interruptions.
 Usage:
     modal run scripts/download_ixi.py
 """
+
 from __future__ import annotations
 
 import modal
@@ -34,7 +35,9 @@ def download():
     def _count_nifti() -> int:
         if not os.path.exists(target_dir):
             return 0
-        return len([f for f in os.listdir(target_dir) if f.endswith((".nii.gz", ".nii"))])
+        return len(
+            [f for f in os.listdir(target_dir) if f.endswith((".nii.gz", ".nii"))]
+        )
 
     # Fast path: already complete
     n_existing = _count_nifti()
@@ -44,7 +47,10 @@ def download():
         return
 
     if n_existing > 0:
-        print(f"Partial download detected: {n_existing} files (expected >= {EXPECTED_MIN_SUBJECTS})")
+        print(
+            f"Partial download detected: {n_existing} files "
+            f"(expected >= {EXPECTED_MIN_SUBJECTS})"
+        )
 
     os.makedirs(target_dir, exist_ok=True)
 

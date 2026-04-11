@@ -24,6 +24,18 @@ SwinIR and NAFNet retrained on 94 W2S FoVs with real microscopy noise (Poisson-G
 
 SwinIR shows a small consistent advantage over NAFNet (0.3-0.4 dB across all noise levels). Both models show the expected pattern of increasing PSNR with decreasing noise.
 
+### Cross-Domain Transfer to Brain MRI (IXI)
+
+Same SwinIR architecture and training pipeline, finetuned on the [IXI brain MRI dataset](https://brain-development.org/ixi-dataset/) (T1-weighted, 460/60/60 subject-level split, 581 subjects total). Synthetic Rician noise added at evaluation time as the clinically appropriate noise model for MRI magnitude images. Training plateaued at epoch 12 with diminishing returns; the checkpoint at that epoch is reported.
+
+| | PSNR (dB) | SSIM |
+|---|---|---|
+| Noisy input baseline | 18.86 +/- 0.18 | 0.4446 +/- 0.0707 |
+| SwinIR (W2S transfer) | **29.60 +/- 1.13** | **0.9170 +/- 0.0140** |
+| Improvement | +10.74 dB | +0.47 |
+
+Evaluated on 55 held-out subjects (5 of 60 nominal subject IDs were missing from the IXI download; see [DECISIONS.md](DECISIONS.md)). The 10.74 dB gap over the noisy-input baseline confirms the architecture transfers across domains; the absolute PSNR is lower than W2S because IXI is a harder denoising task -- synthetic Rician noise rather than real frame-averaging, anatomical texture rather than fluorescence point sources, and no clean reference from physical averaging.
+
 ### Model Comparison
 
 | | SwinIR | NAFNet |
@@ -37,13 +49,15 @@ NAFNet trains ~4x faster and uses ~16x less GPU memory — depthwise separable c
 
 ### Methodology
 
-Evaluation harness verified via calibration check against W2S pretrained baselines (DnCNN, MemNet) before trusting retrained model numbers. See [EVALUATION.md](EVALUATION.md) for protocol, calibration results, and test set caveats. See [DECISIONS.md](DECISIONS.md) for 11 architectural decisions with rationale. See [docs/tradeoffs.md](docs/tradeoffs.md) for 9 methodology catches across V1-V3, all caught during V3 development before shipping.
+Evaluation harness verified via calibration check against W2S pretrained baselines (DnCNN, MemNet) before trusting retrained model numbers. IXI evaluation verified via 5-check pre-flight gate (data inspection, denormalize round-trip, metric sanity, noisy-input baseline, model evaluation). See [EVALUATION.md](EVALUATION.md) for protocol, calibration results, and test set caveats. See [DECISIONS.md](DECISIONS.md) for 18 architectural decisions with rationale. See [docs/tradeoffs.md](docs/tradeoffs.md) for methodology catches across V1-V3.
 
-## Dataset
+## Datasets
 
-[W2S (Widefield2SIM)](https://github.com/ivrl/w2s) — fluorescence microscopy benchmark with real Poisson-Gaussian noise from frame averaging. 120 FoVs x 3 wavelengths, noise levels from single-frame (avg1) to 400-frame average (avg400, clean reference). SIM ground truth at 2x resolution for super-resolution.
+**W2S (Widefield2SIM)** — [ivrl/w2s](https://github.com/ivrl/w2s). Fluorescence microscopy benchmark with real Poisson-Gaussian noise from frame averaging. 120 FoVs x 3 wavelengths, noise levels from single-frame (avg1) to 400-frame average (avg400, clean reference). SIM ground truth at 2x resolution for super-resolution. Splits: 94 train / 13 val / 13 test FoVs, split at FoV level to prevent data leakage.
 
-Splits: 94 train / 13 val / 13 test FoVs. Split at FoV level (not file level) to prevent data leakage. Frozen in `inverseops/data/splits.json`.
+**IXI Brain MRI** — [brain-development.org](https://brain-development.org/ixi-dataset/). 581 T1-weighted brain MRI volumes from three London hospitals. Synthetic Rician noise added on-the-fly as the clinically appropriate noise model for MRI magnitude images. Splits: 460 train / 60 val / 60 test subjects (55 test subjects realized after download; see [DECISIONS.md](DECISIONS.md)). Split at subject level to prevent slice-level data leakage.
+
+All splits frozen in `inverseops/data/splits.json`.
 
 ## Inference API
 
@@ -200,7 +214,8 @@ inverseops/
     config.py       # Config validation (model + dataset registry checks)
     data/
         w2s.py      # W2SDataset (denoise + SR, FoV-level splits)
-        splits.json # Frozen train/val/test splits (94/13/13 FoVs)
+        ixi.py      # IXIDataset (brain MRI denoising, subject-level splits)
+        splits.json # Frozen train/val/test splits (W2S FoVs + IXI subjects)
     models/         # SwinIR + NAFNet architectures and wrappers
     training/       # Trainer with early stopping, denormalized PSNR, sanity assertions
     evaluation/     # PSNR/SSIM metrics
@@ -214,10 +229,13 @@ scripts/
     run_evaluation.py   # Eval harness with denormalize + mean+/-std
     modal_calibration.py # Calibration check against W2S baselines
     download_w2s.py     # Download W2S data to Modal volume
+    download_ixi.py     # Download IXI data to Modal volume
+    modal_eval_ixi.py   # IXI pre-flight + evaluation
 configs/
     w2s_denoise_swinir.yaml  # SwinIR denoising on W2S
     w2s_denoise_nafnet.yaml  # NAFNet denoising on W2S
     w2s_sr_swinir_2x.yaml   # SwinIR super-resolution 2x
+    ixi_denoise_swinir.yaml # SwinIR denoising on IXI (transfer from W2S)
 docker/                      # Inference + monitoring deployment
 tests/                       # 127 tests (data pipeline, metrics, training, eval harness)
 docs/
@@ -241,3 +259,4 @@ DECISIONS.md                 # 11 architectural decisions with rationale
 
 **Datasets:**
 - **W2S**: cloned from [ivrl/w2s](https://github.com/ivrl/w2s) via `scripts/download_w2s.py`
+- **IXI**: downloaded from [brain-development.org](https://brain-development.org/ixi-dataset/) via `scripts/download_ixi.py`

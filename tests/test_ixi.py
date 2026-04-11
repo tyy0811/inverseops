@@ -5,7 +5,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import pytest
 import torch
 
 
@@ -18,12 +17,11 @@ def _create_ixi_structure(root: Path, n_subjects: int = 6) -> None:
         site = sites[i % len(sites)]
         vol = np.random.rand(64, 64, 30).astype(np.float32) * 1000
         img = nib.Nifti1Image(vol, affine=np.eye(4))
-        fname = root / f"IXI{i:03d}-{site}-{1000+i}-T1.nii.gz"
+        fname = root / f"IXI{i:03d}-{site}-{1000 + i}-T1.nii.gz"
         nib.save(img, fname)
 
 
 class TestIXIDataset:
-
     def test_discovers_subjects(self):
         from inverseops.data.ixi import IXIDataset
 
@@ -87,7 +85,9 @@ class TestIXIDataset:
             root = Path(tmp)
             _create_ixi_structure(root, n_subjects=10)
 
-            splits = {"ixi": {"train": [1, 2, 3, 4, 5, 6, 7, 8], "val": [9], "test": [10]}}
+            splits = {
+                "ixi": {"train": [1, 2, 3, 4, 5, 6, 7, 8], "val": [9], "test": [10]}
+            }
             sp = root / "splits.json"
             with open(sp, "w") as f:
                 json.dump(splits, f)
@@ -119,9 +119,9 @@ class TestIXIDataset:
 
 
 class TestIXIRegistry:
-
     def test_ixi_in_registry(self):
         from inverseops.data import DATASET_REGISTRY
+
         assert "ixi" in DATASET_REGISTRY
 
     def test_build_dataset_forwards_sigma(self):
@@ -147,7 +147,6 @@ class TestIXIRegistry:
 
 
 class TestIXIMissingSplitWarning:
-
     def test_warns_on_missing_subjects(self, capsys):
         """Frozen splits referencing absent subject IDs should print a warning."""
         from inverseops.data.ixi import IXIDataset
@@ -157,7 +156,9 @@ class TestIXIMissingSplitWarning:
             _create_ixi_structure(root, n_subjects=4)  # IDs 1-4
 
             # splits.json references IDs 1-10, but only 1-4 exist on disk
-            splits = {"ixi": {"train": [1, 2, 3, 4, 5, 6, 7, 8], "val": [9], "test": [10]}}
+            splits = {
+                "ixi": {"train": [1, 2, 3, 4, 5, 6, 7, 8], "val": [9], "test": [10]}
+            }
             sp = root / "splits.json"
             with open(sp, "w") as f:
                 json.dump(splits, f)
