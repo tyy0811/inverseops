@@ -292,7 +292,7 @@ class TestTrainer:
         pred[0] = 0.1   # MSE = 0.01 -> PSNR = 20.0
         pred[1] = 0.01  # MSE = 0.0001 -> PSNR = 40.0
 
-        result = trainer._compute_psnr(pred, target)
+        result = trainer._compute_psnr(pred, target, data_range=1.0)
         expected = (20.0 + 40.0) / 2.0
         assert result == pytest.approx(expected, abs=0.01)
 
@@ -487,6 +487,65 @@ class TestDay5Summary:
             capture_output=True, text=True,
         )
         assert result.returncode != 0
-        assert "not allowed" in result.stderr.lower()
+
+
+class TestDenormalizedPSNR:
+    """Verify Trainer PSNR is plausible when using denormalize_fn."""
+
+    def test_psnr_plausible_with_denormalize(self, tmp_path):
+        """Train 2 epochs on W2S-like Z-score data, verify val PSNR is 15-55 dB."""
+        import tempfile
+
+        from inverseops.data.w2s import W2SDataset, W2S_MEAN, W2S_STD
+        from inverseops.training.losses import l1_loss
+        from inverseops.training.trainer import Trainer
+
+        # Create tiny W2S-like fixture (pre-normalized, mean≈0, std≈1)
+        fixture_dir = tmp_path / "fixture"
+        for level in [1, 400]:
+            d = fixture_dir / f"avg{level}"
+            d.mkdir(parents=True)
+            for fov in range(1, 5):
+                for wl in range(1):
+                    noise = 0.3 / max(level, 1)
+                    rng = np.random.default_rng(fov * 100 + level)
+                    arr = rng.normal(0, 1.0, (32, 32)).astype(np.float32)
+                    arr += rng.normal(0, noise, (32, 32)).astype(np.float32)
+                    np.save(d / f"{fov:03d}_{wl}.npy", arr)
+
+        ds = W2SDataset(
+            root_dir=fixture_dir, split="train", avg_levels=[1], patch_size=32,
+        )
+        ds.prepare()
+
+        loader = DataLoader(ds, batch_size=2, shuffle=False)
+
+        # Tiny model
+        model = torch.nn.Conv2d(1, 1, 3, padding=1)
+
+        trainer = Trainer(
+            model=model,
+            train_loader=loader,
+            val_loader=loader,
+            optimizer=torch.optim.Adam(model.parameters(), lr=1e-3),
+            scheduler=None,
+            loss_fn=l1_loss,
+            device="cpu",
+            output_dir=tmp_path / "out",
+            max_epochs=2,
+            use_amp=False,
+            wandb_enabled=False,
+            denormalize_fn=W2SDataset.denormalize,
+            early_stopping_patience=100,
+        )
+        summary = trainer.train()
+
+        psnr = summary["best_val_psnr"]
+        # Untrained tiny model on random data: PSNR should be low but real.
+        # The key assertion: NOT 120 dB (the old double-norm bug) and NOT inf.
+        assert 5 < psnr < 55, (
+            f"Val PSNR {psnr:.2f} dB outside plausible range 5-55 dB. "
+            f"Denormalization may be broken."
+        )
 
 

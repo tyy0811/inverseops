@@ -88,15 +88,63 @@ def load_config(config_path: Path) -> dict:
 def build_dataloaders(
     config: dict, preload: bool = False,
 ) -> tuple:
-    """Build train and validation DataLoaders.
+    """Build train and validation DataLoaders from config.
 
-    V3 stub: wire to W2SDataset in Phase 1 Day 1.
+    Uses build_dataset() factory which forwards all config["data"]
+    keys as constructor kwargs. Dataset-specific parameters (e.g.,
+    avg_levels for W2S, sigma for IXI) are passed through config.
     """
-    raise NotImplementedError(
-        "V3: build_dataloaders() gutted in quarantine commit. "
-        "Replace with W2SDataset — see Phase 1 Day 1 in "
-        "docs/plans/2026-04-10-v3-inverse-problems-design.md"
+    from torch.utils.data import DataLoader, Subset
+
+    from inverseops.data import build_dataset
+
+    data_cfg = config["data"]
+
+    # build_dataset handles registry lookup, kwarg forwarding, and prepare()
+    train_dataset = build_dataset(config, split="train", training=True)
+    val_dataset = build_dataset(
+        {**config, "data": {**data_cfg, "train_root": data_cfg.get("val_root", data_cfg["train_root"])}},
+        split="val",
+        training=False,
     )
+
+    # Apply sample limits
+    limit_train = data_cfg.get("limit_train_samples")
+    if limit_train is not None and limit_train < len(train_dataset):
+        train_dataset = Subset(train_dataset, list(range(limit_train)))
+
+    limit_val = data_cfg.get("limit_val_samples")
+    if limit_val is not None and limit_val < len(val_dataset):
+        val_dataset = Subset(val_dataset, list(range(limit_val)))
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=data_cfg["batch_size"],
+        shuffle=True,
+        num_workers=data_cfg.get("num_workers", 0),
+        pin_memory=True,
+        drop_last=True,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=data_cfg["batch_size"],
+        shuffle=False,
+        num_workers=data_cfg.get("num_workers", 0),
+        pin_memory=True,
+    )
+
+    # Extract denormalize callable and data_range from the underlying dataset.
+    # Subset wraps the dataset, so unwrap if needed.
+    from inverseops.data import DATASET_DATA_RANGE
+
+    raw_val_dataset = val_dataset.dataset if hasattr(val_dataset, "dataset") else val_dataset
+    denormalize_fn = getattr(raw_val_dataset, "denormalize", None)
+    dataset_name = data_cfg.get("dataset", "w2s")
+    data_range = DATASET_DATA_RANGE.get(dataset_name, 255.0)
+
+    print(f"Train dataset: {len(train_dataset)} samples")
+    print(f"Val dataset: {len(val_dataset)} samples")
+    return train_loader, val_loader, denormalize_fn, data_range
 
 
 def main() -> int:
@@ -137,11 +185,18 @@ def main() -> int:
             " (default: swinir_fmd_denoise_sigma15_25_50_v1)"
         ),
     )
-    parser.add_argument(
+    checkpoint_group = parser.add_mutually_exclusive_group()
+    checkpoint_group.add_argument(
         "--resume",
         type=Path,
         default=None,
-        help="Resume from checkpoint",
+        help="Resume from checkpoint (restores optimizer, epoch, and scheduler)",
+    )
+    checkpoint_group.add_argument(
+        "--pretrained-checkpoint",
+        type=Path,
+        default=None,
+        help="Load model weights only for transfer learning (resets optimizer/epoch)",
     )
     parser.add_argument(
         "--epochs",
@@ -240,7 +295,7 @@ def main() -> int:
 
     # Build data loaders
     print("\nBuilding datasets...")
-    train_loader, val_loader = build_dataloaders(config, preload=args.preload)
+    train_loader, val_loader, denormalize_fn, data_range = build_dataloaders(config, preload=args.preload)
 
     # Build model
     print("\nBuilding model...")
@@ -285,6 +340,17 @@ def main() -> int:
         resume_kwargs["global_step"] = checkpoint.get("global_step", 0)
         print(f"Resumed from epoch {resume_kwargs['start_epoch']}")
 
+    # Transfer learning: load model weights only (reset optimizer/epoch)
+    if args.pretrained_checkpoint:
+        if not args.pretrained_checkpoint.exists():
+            print(f"Error: Pretrained checkpoint not found: {args.pretrained_checkpoint}")
+            return 1
+
+        print(f"Transfer learning from {args.pretrained_checkpoint}")
+        checkpoint = torch.load(args.pretrained_checkpoint, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print("Loaded model weights (optimizer/epoch reset for fine-tuning)")
+
     # Get loss function
     loss_fn = get_loss(train_cfg["loss"])
 
@@ -316,6 +382,8 @@ def main() -> int:
         log_every_n_steps=train_cfg["log_every_n_steps"],
         wandb_enabled=wandb_enabled,
         config=config,
+        denormalize_fn=denormalize_fn,
+        data_range=data_range,
         **resume_kwargs,
     )
 

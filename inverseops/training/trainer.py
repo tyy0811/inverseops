@@ -33,6 +33,11 @@ class Trainer:
         log_every_n_steps: Log training loss every N steps.
         wandb_enabled: Whether W&B logging is enabled.
         config: Optional config dict to save in checkpoints.
+        denormalize_fn: Callable to reverse dataset normalization before PSNR.
+            If None, PSNR is computed on raw model output (assumes [0,1] range).
+        data_range: Peak signal value for PSNR/SSIM (255.0 for W2S, 1.0 for IXI).
+            Must match the range of denormalized data. If denormalize_fn is None,
+            defaults to 1.0 (raw [0,1] output).
     """
 
     def __init__(
@@ -51,6 +56,8 @@ class Trainer:
         log_every_n_steps: int = 100,
         wandb_enabled: bool = False,
         config: dict | None = None,
+        denormalize_fn: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        data_range: float = 1.0,
         start_epoch: int = 0,
         best_val_psnr: float = float("-inf"),
         best_epoch: int = 0,
@@ -70,6 +77,8 @@ class Trainer:
         self.log_every_n_steps = log_every_n_steps
         self.wandb_enabled = wandb_enabled
         self.config = config or {}
+        self.denormalize_fn = denormalize_fn
+        self.data_range = data_range
 
         # AMP setup - only use on CUDA
         self.use_amp = use_amp and device != "cpu" and torch.cuda.is_available()
@@ -267,8 +276,17 @@ class Trainer:
             outputs = self.model(inputs)
             loss = self.loss_fn(outputs, targets)
 
-            # Compute PSNR
-            psnr = self._compute_psnr(outputs, targets)
+            # Denormalize and clamp before PSNR — same protocol as
+            # run_evaluation.py so checkpoint selection optimizes the
+            # same metric that gets reported.
+            if self.denormalize_fn is not None:
+                outputs_for_psnr = self.denormalize_fn(outputs).clamp(0, self.data_range)
+                targets_for_psnr = self.denormalize_fn(targets).clamp(0, self.data_range)
+            else:
+                outputs_for_psnr = outputs.clamp(0, self.data_range)
+                targets_for_psnr = targets.clamp(0, self.data_range)
+
+            psnr = self._compute_psnr(outputs_for_psnr, targets_for_psnr, self.data_range)
 
             total_loss += loss.item()
             total_psnr += psnr
@@ -277,23 +295,43 @@ class Trainer:
         mean_loss = total_loss / num_batches if num_batches > 0 else 0.0
         mean_psnr = total_psnr / num_batches if num_batches > 0 else 0.0
 
+        # Sanity guard: only when denormalize_fn is set (real PSNR in dB).
+        # Without denormalize_fn, PSNR is on raw model output and bounds
+        # depend on the data distribution, so we can't assert a range.
+        if self.denormalize_fn is not None:
+            if mean_psnr > 60:
+                raise RuntimeError(
+                    f"Val PSNR {mean_psnr:.2f} dB is suspiciously high (>60 dB). "
+                    f"Check denormalization — this likely indicates a data range or "
+                    f"normalization bug. Aborting to prevent wasting GPU compute."
+                )
+            if mean_psnr < 5 and num_batches > 0:
+                raise RuntimeError(
+                    f"Val PSNR {mean_psnr:.2f} dB is implausibly low (<5 dB). "
+                    f"Check data loading and model forward pass. "
+                    f"Aborting to prevent wasting GPU compute."
+                )
+
         return mean_loss, mean_psnr
 
-    def _compute_psnr(self, pred: torch.Tensor, target: torch.Tensor) -> float:
-        """Compute PSNR for tensors in [0, 1] range.
+    def _compute_psnr(
+        self, pred: torch.Tensor, target: torch.Tensor, data_range: float = 255.0,
+    ) -> float:
+        """Compute PSNR between prediction and target tensors.
 
         Args:
             pred: Predicted tensor [B, C, H, W].
             target: Target tensor [B, C, H, W].
+            data_range: Peak signal value (255.0 for denormalized, 1.0 for [0,1]).
 
         Returns:
-            Mean PSNR across batch.
+            Mean PSNR across batch in dB.
         """
-        pred = pred.clamp(0, 1)
-        target = target.clamp(0, 1)
         mse_per_image = torch.mean((pred - target) ** 2, dim=(1, 2, 3))
         eps = 1e-12
-        psnr_per_image = 10.0 * torch.log10(1.0 / torch.clamp(mse_per_image, min=eps))
+        psnr_per_image = 10.0 * torch.log10(
+            data_range**2 / torch.clamp(mse_per_image, min=eps)
+        )
         return psnr_per_image.mean().item()
 
     def _save_checkpoint(self, epoch: int, val_psnr: float, is_latest: bool) -> None:
