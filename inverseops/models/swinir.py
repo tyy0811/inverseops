@@ -305,7 +305,7 @@ def get_trainable_swinir(
     device: str | None = None,
     cache_dir: Path | str | None = None,
     **kwargs,
-) -> SwinIR:
+) -> torch.nn.Module:
     """Return trainable SwinIR model.
 
     Args:

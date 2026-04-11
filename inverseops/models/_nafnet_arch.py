@@ -234,7 +234,7 @@ class NAFNet(nn.Module):
             self.downs.append(nn.Conv2d(chan, 2 * chan, 2, 2))
             chan = chan * 2
 
-        self.middle_blks = nn.Sequential(
+        self.middle_blks = nn.Sequential(  # type: ignore[assignment]
             *[NAFBlock(chan) for _ in range(middle_blk_num)]
         )
 

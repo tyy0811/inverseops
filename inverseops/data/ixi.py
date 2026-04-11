@@ -117,7 +117,10 @@ class IXIDataset(TorchDataset):
             if subject_id not in subject_map:
                 continue
             vol_path = subject_map[subject_id]
-            vol = nib.load(vol_path).get_fdata().astype(np.float32)
+            nii_img: nib.Nifti1Image = nib.load(vol_path)  # type: ignore[assignment]
+            vol = np.asarray(
+                nii_img.dataobj, dtype=np.float32
+            )
 
             # Normalize per-subject using robust percentile
             foreground = vol[vol > 0]

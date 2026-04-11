@@ -92,4 +92,6 @@ def bicubic_downsample(image: Image.Image, scale: int) -> Image.Image:
         Downsampled PIL image.
     """
     w, h = image.size
-    return image.resize((w // scale, h // scale), Image.BICUBIC)
+    return image.resize(
+        (w // scale, h // scale), Image.Resampling.BICUBIC
+    )
