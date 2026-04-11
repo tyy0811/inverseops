@@ -7,14 +7,11 @@ Prerequisites:
     modal secret create wandb-api-key WANDB_API_KEY=<key>  # optional, for W&B
 
 Usage:
-    # Default SwinIR denoising
-    modal run scripts/modal_train.py
+    # W2S SwinIR denoising
+    modal run scripts/modal_train.py --config configs/w2s_denoise_swinir.yaml
 
-    # NAFNet denoising
-    modal run scripts/modal_train.py --config configs/denoise_nafnet_sigma25.yaml
-
-    # SwinIR SR 2x
-    modal run scripts/modal_train.py --config configs/sr_swinir_2x.yaml
+    # W2S NAFNet denoising
+    modal run scripts/modal_train.py --config configs/w2s_denoise_nafnet.yaml
 
     # With W&B logging
     modal run scripts/modal_train.py --wandb
@@ -43,12 +40,14 @@ app = modal.App("inverseops-training")
 # Persistent volume for training outputs only (checkpoints, summaries)
 vol = modal.Volume.from_name("inverseops-vol", create_if_missing=True)
 
+# Data volume — W2S normalized .npy files downloaded via scripts/download_w2s.py
+data_vol = modal.Volume.from_name("inverseops-data", create_if_missing=True)
+
 # ---------------------------------------------------------------------------
-# Image: deps + pretrained weights + data — all baked in, local-disk fast
+# Image: deps + pretrained weights (data loaded from volume at runtime)
 # ---------------------------------------------------------------------------
 
 WEIGHTS_DIR = "/cache/inverseops/models"
-DATA_DIR = "/data/w2s"
 
 # All pretrained weight URLs — baked into image at build time
 PRETRAINED_URLS = [
@@ -84,35 +83,19 @@ base_image = (
         "pyyaml>=6.0",
         "wandb>=0.15",
         "structlog>=23.0",
+        "nibabel>=5.0",
     )
     .run_commands(*_download_cmds)
 )
 
-# TODO: Rebase data baking for W2S (Phase 1 Day 1).
-# Current FMD zip baking is quarantined — this layer will fail until
-# replaced with W2S download-to-volume strategy.
-data_image = (
-    base_image
-    .add_local_file("data/raw/fmd.zip", remote_path="/tmp/fmd.zip", copy=True)
-    .run_commands(
-        f"mkdir -p {DATA_DIR}",
-        (
-            f"python -c \"import zipfile; "
-            f"zipfile.ZipFile('/tmp/fmd.zip')"
-            f".extractall('{DATA_DIR}')\""
-        ),
-        "rm /tmp/fmd.zip",
-    )
-)
-
-# 3) Add source code on top
+# Add source code on top (data loaded from volume, not baked into image)
 def _source_ignore(path: Path) -> bool:
     skip = {"data", ".git", "__pycache__", "outputs", "artifacts",
             ".mypy_cache", ".pytest_cache", ".ruff_cache"}
     top = path.parts[0] if path.parts else ""
     return top in skip
 
-train_image = data_image.add_local_dir(
+train_image = base_image.add_local_dir(
     ".", remote_path="/app", ignore=_source_ignore,
 )
 
@@ -124,18 +107,19 @@ train_image = data_image.add_local_dir(
 @app.function(
     image=train_image,
     gpu="A100",
-    volumes={"/vol": vol},      # only for saving outputs
+    volumes={"/vol": vol, "/data": data_vol},
     secrets=[modal.Secret.from_name("wandb-api-key")],
     timeout=86400,              # 24 hours
 )
 def train(
-    config_path: str = "configs/denoise_swinir.yaml",
+    config_path: str = "configs/w2s_denoise_swinir.yaml",
     epochs: int = 100,
     batch_size: int = 4,
     limit_train: int = 0,
     limit_val: int = 0,
     resume: bool = False,
     wandb: bool = False,
+    pretrained_checkpoint: str = "",
 ):
     """Run training on a Modal GPU.
 
@@ -147,6 +131,8 @@ def train(
         limit_val: Limit validation samples (0 = no limit).
         resume: Resume from last checkpoint.
         wandb: Enable W&B logging (requires wandb-api-key secret).
+        pretrained_checkpoint: Path to checkpoint for transfer learning
+            (loads weights only, resets optimizer/epoch). Relative to /vol/.
     """
     import json
     import subprocess
@@ -155,22 +141,17 @@ def train(
     import yaml
 
     # ------------------------------------------------------------------
-    # Patch config for Modal paths (data is on local disk in the image)
+    # Patch config for Modal paths (data on volume, source in /app)
     # ------------------------------------------------------------------
     with open(f"/app/{config_path}") as f:
         config = yaml.safe_load(f)
 
-    # Rebase data paths: replace local "data/raw/fmd" prefix with Modal's DATA_DIR
-    for key in ("train_root", "val_root"):
-        local_path = config["data"].get(key, "")
-        # Strip the local "data/raw/fmd" prefix, keep the rest (e.g., /fmd/Confocal_FISH)
-        if "data/raw/fmd" in local_path:
-            suffix = local_path.split("data/raw/fmd", 1)[1]
-            config["data"][key] = DATA_DIR + suffix
-        else:
-            config["data"][key] = DATA_DIR
+    # Data paths already point to /data/w2s/... in W2S configs.
+    # Rebase splits_path to the app source tree.
+    if config["data"].get("splits_path"):
+        config["data"]["splits_path"] = f"/app/{config['data']['splits_path']}"
     config["data"]["num_workers"] = 0
-    config["output_dir"] = "/vol/outputs/training"
+    config["output_dir"] = f"/vol/{config['output_dir']}"
 
     modal_config = Path("/tmp/modal_config.yaml")
     with open(modal_config, "w") as f:
@@ -193,12 +174,16 @@ def train(
     if limit_val > 0:
         cmd += ["--limit-val-samples", str(limit_val)]
     if resume:
-        checkpoint = Path("/vol/outputs/training/checkpoints/latest.pt")
+        checkpoint = Path(config["output_dir"]) / "checkpoints" / "latest.pt"
         if checkpoint.exists():
             cmd += ["--resume", str(checkpoint)]
             print(f"Resuming from {checkpoint}")
         else:
             print("No checkpoint found — starting fresh")
+    if pretrained_checkpoint:
+        pt_path = f"/vol/{pretrained_checkpoint}"
+        cmd += ["--pretrained-checkpoint", pt_path]
+        print(f"Transfer learning from {pt_path}")
 
     env = {
         **os.environ,
@@ -211,7 +196,7 @@ def train(
     print(f"Config: {config_path}")
     print(f"Training: {epochs} epochs, batch_size={batch_size}, gpu=A100")
     print(f"W&B: {'enabled' if wandb else 'disabled'}")
-    print(f"Data: {DATA_DIR} (baked into image)")
+    print(f"Data: /data volume (inverseops-data)")
     print("=" * 60)
     result = subprocess.run(cmd, env=env)
     print("=" * 60)
@@ -224,7 +209,7 @@ def train(
     # ------------------------------------------------------------------
     # Print summary
     # ------------------------------------------------------------------
-    summary_path = Path("/vol/outputs/training/training_summary.json")
+    summary_path = Path(config["output_dir"]) / "training_summary.json"
     if summary_path.exists():
         with open(summary_path) as f:
             summary = json.load(f)
@@ -244,13 +229,14 @@ def train(
 
 @app.local_entrypoint()
 def main(
-    config: str = "configs/denoise_swinir.yaml",
+    config: str = "configs/w2s_denoise_swinir.yaml",
     epochs: int = 100,
     batch_size: int = 4,
     limit_train: int = 0,
     limit_val: int = 0,
     resume: bool = False,
     wandb: bool = False,
+    pretrained_checkpoint: str = "",
 ):
     """Train on a Modal GPU with any config."""
     print(f"Config: {config}")
@@ -259,6 +245,8 @@ def main(
         print(f"  limit_train={limit_train}, limit_val={limit_val}")
     if resume:
         print("  Resuming from last checkpoint")
+    if pretrained_checkpoint:
+        print(f"  Transfer learning from {pretrained_checkpoint}")
     if wandb:
         print("  W&B logging enabled")
     train.remote(
@@ -269,6 +257,7 @@ def main(
         limit_val=limit_val,
         resume=resume,
         wandb=wandb,
+        pretrained_checkpoint=pretrained_checkpoint,
     )
 
     print("\n" + "=" * 60)

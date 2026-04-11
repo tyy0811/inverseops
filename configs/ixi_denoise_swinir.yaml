@@ -1,0 +1,42 @@
+seed: 42
+task: denoise
+
+data:
+  dataset: ixi
+  train_root: /data/ixi/T1
+  val_root: /data/ixi/T1
+  splits_path: inverseops/data/splits.json
+  batch_size: 4    # batch_size=8 OOMs on A100-40GB with SwinIR-M
+  num_workers: 2
+  patch_size: 128
+  sigma: 0.10    # Rician noise level (fraction of signal intensity)
+
+model:
+  name: swinir
+  pretrained: true
+  noise_level: 25    # SwinIR pretrained weight selector (Gaussian sigma=25)
+                     # NOTE: semantically different from IXI Rician sigma=0.10.
+                     # We use sigma=25 weights as the best general-purpose
+                     # denoising init, not because the noise levels match.
+
+training:
+  epochs: 50
+  learning_rate: 1.0e-4    # Lower LR for fine-tuning
+  weight_decay: 0.0
+  loss: l1
+  amp: false
+  early_stopping_patience: 10
+  log_every_n_steps: 100
+
+scheduler:
+  name: cosine
+  t_max: 50
+  min_lr: 1.0e-6
+
+output_dir: outputs/training_ixi_swinir
+
+tracking:
+  wandb_project: inverseops
+  enabled: true
+  run_name: v3-ixi-swinir-transfer
+  tags: ["denoising", "swinir", "ixi", "transfer", "v3"]

@@ -1,0 +1,38 @@
+seed: 42
+task: denoise
+
+data:
+  dataset: w2s
+  train_root: /data/w2s/data/normalized    # Modal path
+  val_root: /data/w2s/data/normalized
+  splits_path: inverseops/data/splits.json
+  batch_size: 4
+  num_workers: 2
+  patch_size: 128
+
+model:
+  name: swinir
+  pretrained: true
+  noise_level: 25
+
+training:
+  epochs: 100
+  learning_rate: 2.0e-4
+  weight_decay: 0.0
+  loss: l1
+  amp: false
+  early_stopping_patience: 10
+  log_every_n_steps: 100
+
+scheduler:
+  name: cosine
+  t_max: 100
+  min_lr: 1.0e-6
+
+output_dir: outputs/training_w2s_swinir
+
+tracking:
+  wandb_project: inverseops
+  enabled: true
+  run_name: v3-w2s-swinir-denoise
+  tags: ["denoising", "swinir", "w2s", "v3"]
