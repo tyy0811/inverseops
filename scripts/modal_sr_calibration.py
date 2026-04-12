@@ -43,6 +43,8 @@ import math
 from pathlib import Path
 
 import modal
+import torch
+import torch.nn as nn
 
 app = modal.App("inverseops-sr-calibration")
 data_vol = modal.Volume.from_name("inverseops-data", create_if_missing=True)
@@ -69,9 +71,8 @@ image = base_image.add_local_dir(".", remote_path="/app", ignore=_source_ignore)
 # from the mutable Modal data volume at runtime.
 #
 # Source: github.com/ivrl/w2s  code/SR/model/common.py + code/SR/model/RRDB.py
+# (torch / torch.nn are imported at the top of the file.)
 # ---------------------------------------------------------------------------
-import torch
-import torch.nn as nn
 
 
 def _default_conv(in_channels, out_channels, kernel_size, bias=True):
@@ -199,7 +200,6 @@ def calibrate_sr():
 
     import numpy as np
     import torch
-    import torch.nn as nn
     from skimage.metrics import structural_similarity as ssim_skimage
 
     # ----------------------------------------------------------------
@@ -287,7 +287,7 @@ def calibrate_sr():
     p_bic_dr1 = psnr_np(hr_01, lr_upscaled, data_range=1.0)
     print(f"  Bicubic(avg1->SIM): RMSE={rmse_bicubic:.4f}  "
           f"PSNR(dr=1)={p_bic_dr1:.2f}")
-    print(f"  (Table 2 Noisy-LR RMSE is ~0.58-0.81; bicubic should be similar)")
+    print("  (Table 2 Noisy-LR RMSE is ~0.58-0.81; bicubic should be similar)")
 
     lr400_npy = np.load(
         data_root / "avg400" / f"{fov0:03d}_0.npy"
@@ -306,17 +306,17 @@ def calibrate_sr():
 
     # SHA256 verification — refuse to load if the checkpoint has been
     # modified since we pinned it from the known-good W2S repo clone.
-    print(f"  Verifying checkpoint SHA256...")
+    print("  Verifying checkpoint SHA256...")
     sha = hashlib.sha256()
     with open(model_path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             sha.update(chunk)
     actual_hash = sha.hexdigest()
     if actual_hash != _EXPECTED_CKPT_SHA256:
-        print(f"  FAIL: checkpoint hash mismatch!")
+        print("  FAIL: checkpoint hash mismatch!")
         print(f"    expected: {_EXPECTED_CKPT_SHA256}")
         print(f"    actual:   {actual_hash}")
-        print(f"  Refusing to load — checkpoint may have been modified.")
+        print("  Refusing to load — checkpoint may have been modified.")
         sys.exit(1)
     print(f"  SHA256 verified: {actual_hash[:16]}...")
 
@@ -375,7 +375,7 @@ def calibrate_sr():
     print(f"  upconv/HRconv keys ({len(upconv_keys)}): {upconv_keys[:5]}...")
 
     # Print weight norms for key layers — distinguishes trained from random init
-    print(f"\n  --- Weight L2 norms (distinguishes trained vs init) ---")
+    print("\n  --- Weight L2 norms (distinguishes trained vs init) ---")
     for k in sorted(sd.keys()):
         if any(x in k for x in [
             "conv_first.weight", "conv_first.bias",
@@ -401,213 +401,42 @@ def calibrate_sr():
     print(f"\n  Using unpickled model directly: {n_params:,} params "
           f"({n_params/1e6:.1f}M)")
 
-    # Diagnostic forward passes with three input normalizations to find
-    # which space the model was trained in. The W2S generate_h5f.ipynb
-    # has a bug: it loads .npy (Z-score) but applies /255 anyway, so
-    # training data is tiny (Z-score values divided by 255).
-    print(f"\n  --- Diagnostic forward passes (3 input normalizations) ---")
+    # Import the shared sliding-window stitcher. Defined at module
+    # scope in inverseops.evaluation.stitching so it can be unit-tested
+    # (tests/test_sr_stitching.py) without pulling in the Modal runtime.
+    sys.path.insert(0, "/app")
+    from inverseops.evaluation.stitching import sliding_window_sr
 
-    test_lr_npy_raw = np.load(
-        data_root / "avg1" / f"{test_fovs[0]:03d}_0.npy"
-    ).astype(np.float32)
-    test_hr_npy_raw = np.load(
-        data_root / "sim" / f"{test_fovs[0]:03d}_0.npy"
-    ).astype(np.float32)
-
-    # Reference: SIM target ranges in each space
-    print(f"\n    SIM ground-truth (HR) ranges in 3 spaces:")
-    sim_a = np.clip(test_hr_npy_raw * W2S_STD + W2S_MEAN, 0, 255) / 255.0
-    sim_b = test_hr_npy_raw  # Z-score
-    sim_c = test_hr_npy_raw / 255.0  # Z-score / 255 (the H5 bug space)
-    print(f"      [A] PNG/255 space:    [{sim_a.min():.4f}, {sim_a.max():.4f}]"
-          f" mean={sim_a.mean():.4f}")
-    print(f"      [B] Z-score space:    [{sim_b.min():.4f}, {sim_b.max():.4f}]"
-          f" mean={sim_b.mean():.4f}")
-    print(f"      [C] Z-score/255:      [{sim_c.min():.6f}, {sim_c.max():.6f}]"
-          f" mean={sim_c.mean():.6f}")
-
-    # Three input normalizations to test
-    inputs_to_test = {
-        "[A] PNG/255 (npy denorm clip /255)":
-            np.clip(test_lr_npy_raw * W2S_STD + W2S_MEAN, 0, 255) / 255.0,
-        "[B] Z-score (raw .npy)":
-            test_lr_npy_raw,
-        "[C] Z-score/255 (npy / 255)":
-            test_lr_npy_raw / 255.0,
-    }
-
-    # Patch-level diagnostic
-    for label, test_lr in inputs_to_test.items():
-        test_patch = test_lr[0:128, 0:128]
-        test_inp = torch.from_numpy(test_patch.copy()).unsqueeze(0).unsqueeze(0)
-        test_inp = test_inp.float().to(device)
-        with torch.no_grad():
-            test_out = model(test_inp)
-        if isinstance(test_out, list):
-            test_out = test_out[-1]
-        print(f"\n    {label}")
-        print(f"      Input:  [{test_inp.min().item():.6f}, "
-              f"{test_inp.max().item():.6f}]  mean={test_inp.mean().item():.6f}")
-        print(f"      Output: [{test_out.min().item():.6f}, "
-              f"{test_out.max().item():.6f}]  mean={test_out.mean().item():.6f} "
-              f"std={test_out.std().item():.6f}")
-        n_nan = int(torch.isnan(test_out).sum())
-        if n_nan > 0:
-            print(f"      WARN: {n_nan} NaN values")
-
-    # Full-image inference + RMSE per input space.
-    # Tests whether the model output matches the SIM target in
-    # the SAME space as its input, with NO clamping (so we can see
-    # the raw output statistics vs target statistics).
-    print(f"\n  --- Full-image RMSE per input space (raw output, no clamp) ---")
-
-    def full_image_inference_no_clamp(model, lr_arr, device):
-        """Sliding-window inference WITHOUT clamping. Returns raw model output."""
-        h, w = lr_arr.shape
-        img_ans = np.zeros((h * 2, w * 2), dtype=np.float64)
-        x = 0
-        while x < h:
-            y = 0
-            while y < w:
-                patch = lr_arr[x:x+128, y:y+128]
-                inp = torch.from_numpy(patch.copy()).unsqueeze(0).unsqueeze(0)
-                inp = inp.float().to(device)
-                with torch.no_grad():
-                    sr_patch = model(inp)
-                if isinstance(sr_patch, list):
-                    sr_patch = sr_patch[-1]
-                sr_patch = sr_patch.cpu().numpy()[0, 0]  # NO CLAMP
-                img_ans[x*2+64:x*2+256, y*2+64:y*2+256] = sr_patch[64:, 64:]
-                if x < 64:
-                    img_ans[x*2:x*2+64, y*2+64:y*2+256] = sr_patch[:64, 64:]
-                if y < 64:
-                    img_ans[x*2+64:x*2+256, y*2:y*2+64] = sr_patch[64:, :64]
-                if x < 64 and y < 64:
-                    img_ans[x*2:x*2+64, y*2:y*2+64] = sr_patch[:64, :64]
-                y += 64
-            x += 64
-        return img_ans
-
-    targets = {
-        "[A] PNG/255 (sim denorm clip /255)": sim_a,
-        "[B] Z-score (sim raw .npy)": sim_b,
-        "[C] Z-score/255 (sim / 255)": sim_c,
-    }
-
-    for (label, test_lr), (tlabel, target) in zip(inputs_to_test.items(),
-                                                   targets.items()):
-        sr = full_image_inference_no_clamp(model, test_lr, device)
-        rmse = float(np.sqrt(np.mean((sr - target) ** 2)))
-        print(f"\n    Input  {label}")
-        print(f"    Target {tlabel}")
-        print(f"      Output: [{sr.min():.4f}, {sr.max():.4f}]  "
-              f"mean={sr.mean():.4f}  std={sr.std():.4f}")
-        print(f"      Target: [{target.min():.4f}, {target.max():.4f}]  "
-              f"mean={target.mean():.4f}  std={target.std():.4f}")
-        print(f"      RMSE in same space: {rmse:.4f}")
-
-    # Bonus: convert Z-score model output to PNG/255 space and check
-    # against the PNG/255 target. This tests the "feed Z-score input,
-    # get Z-score output, denorm to [0,255], clip, /255, compare to
-    # PNG/255 target" pipeline — which is what we'd use for reporting
-    # RMSE in the same space as Table 3 published numbers.
-    print(f"\n  --- Bonus: Z-score input -> PNG/255 output pipeline ---")
-    sr_z = full_image_inference_no_clamp(model, test_lr_npy_raw, device)
-    sr_a_from_z = np.clip(sr_z * W2S_STD + W2S_MEAN, 0, 255) / 255.0
-    rmse_a_from_z = float(np.sqrt(np.mean((sr_a_from_z - sim_a) ** 2)))
-    print(f"    Z-score output: [{sr_z.min():.4f}, {sr_z.max():.4f}] "
-          f"mean={sr_z.mean():.4f}")
-    print(f"    -> denorm/clip/255: [{sr_a_from_z.min():.4f}, "
-          f"{sr_a_from_z.max():.4f}] mean={sr_a_from_z.mean():.4f}")
-    print(f"    Target (PNG/255):    [{sim_a.min():.4f}, "
-          f"{sim_a.max():.4f}] mean={sim_a.mean():.4f}")
-    print(f"    RMSE in PNG/255 space: {rmse_a_from_z:.4f}")
-    print(f"    Published Table 3 ours/avg1: RMSE=0.340  SSIM=0.760")
-    print(f"\n    Gap: {abs(rmse_a_from_z - 0.340):.4f}")
-
-    # Smoke test: verify 2x output on multiple shapes
+    # Model shape smoke test: verify 2x output on edge-size inputs.
+    # The fully-convolutional RRDBNet should produce (1, 1, 2h, 2w)
+    # for any (1, 1, h, w) input, including the non-square shapes that
+    # the sliding window produces at image borders.
     for test_h, test_w in [(128, 128), (64, 128), (64, 64)]:
         test_in = torch.randn(1, 1, test_h, test_w).to(device)
         with torch.no_grad():
             test_o = model(test_in)
         if isinstance(test_o, list):
             test_o = test_o[-1]
-        assert test_o.shape == (1, 1, test_h * 2, test_w * 2), (
-            f"Expected output {(1, 1, test_h*2, test_w*2)}, "
-            f"got {tuple(test_o.shape)}"
-        )
-    print(f"  Smoke test: PASS (2x verified for 128x128, 64x128, 64x64)")
-
-    # Diagnostics done — the model takes Z-score input and produces
-    # Z-score output. Full calibration proceeds with this convention.
-
-    # ----------------------------------------------------------------
-    # Sliding-window SR inference (matching W2S test.py exactly)
-    # ----------------------------------------------------------------
-    def sr_inference_w2s(model, lr_01, device):
-        """Replicate W2S test.py sliding window inference.
-
-        LR input: (H, W) float array in [0,1]
-        Returns: (2H, 2W) float array in [0,1]
-
-        Uses 128x128 LR patches with stride 64. Edge patches are
-        naturally smaller (NumPy read-slicing truncates at the image
-        boundary). The fully-convolutional RRDBNet produces a
-        proportionally smaller 2x output, so the write-side slicing
-        stays consistent — no padding needed. This matches the W2S
-        test.py behavior exactly.
-        """
-        h, w = lr_01.shape
-        img_ans = np.zeros((h * 2, w * 2), dtype=np.float64)
-
-        x = 0
-        while x < h:
-            y = 0
-            while y < w:
-                # Extract LR patch — NumPy truncates at boundary for
-                # edge patches, producing < 128 pixels on that axis.
-                patch = lr_01[x:x+128, y:y+128]
-
-                # Model inference — RRDBNet is fully convolutional,
-                # handles arbitrary spatial dims and produces 2x output.
-                inp = torch.from_numpy(patch.copy()).unsqueeze(0).unsqueeze(0)
-                inp = inp.float().to(device)
-                with torch.no_grad():
-                    sr_patch = model(inp)
-                if isinstance(sr_patch, list):
-                    sr_patch = sr_patch[-1]
-                sr_patch = sr_patch.cpu().numpy()
-                sr_patch = np.clip(sr_patch, 0, 1)
-                sr_patch = sr_patch[0, 0]  # (<=256, <=256)
-
-                # Assemble into output. For edge patches, sr_patch is
-                # smaller than 256x256, so sr_patch[64:, 64:] is also
-                # smaller — and the destination slice is truncated by
-                # the same amount. Shapes stay consistent.
-                img_ans[x*2+64:x*2+256, y*2+64:y*2+256] = sr_patch[64:, 64:]
-                if x < 64:
-                    img_ans[x*2:x*2+64, y*2+64:y*2+256] = sr_patch[:64, 64:]
-                if y < 64:
-                    img_ans[x*2+64:x*2+256, y*2:y*2+64] = sr_patch[64:, :64]
-                if x < 64 and y < 64:
-                    img_ans[x*2:x*2+64, y*2:y*2+64] = sr_patch[:64, :64]
-
-                y += 64
-            x += 64
-
-        return img_ans
+        expected_shape = (1, 1, test_h * 2, test_w * 2)
+        if tuple(test_o.shape) != expected_shape:
+            raise ValueError(
+                f"Model shape smoke test failed: expected {expected_shape}, "
+                f"got {tuple(test_o.shape)}"
+            )
+    print("  Model smoke test: PASS (2x verified for 128x128, 64x128, 64x64)")
 
     # ----------------------------------------------------------------
     # Stitching smoke test: verify edge handling on representative
-    # shapes before processing real data. Catches off-by-one errors
+    # LR shapes before processing real data. Catches off-by-one errors
     # and broadcast mismatches that the calibration loop would
-    # otherwise hit halfway through.
+    # otherwise hit halfway through. Also unit-tested in
+    # tests/test_sr_stitching.py against a mock 2x model.
     # ----------------------------------------------------------------
     print("\n=== Stitching smoke test ===")
     for test_shape in [(512, 512), (500, 500), (256, 256), (128, 128)]:
         synthetic_lr = np.random.default_rng(0).random(test_shape).astype(np.float32)
         try:
-            synthetic_sr = sr_inference_w2s(model, synthetic_lr, device)
+            synthetic_sr = sliding_window_sr(model, synthetic_lr, device)
         except Exception as e:
             print(f"  FAIL on {test_shape}: {type(e).__name__}: {e}")
             sys.exit(1)
@@ -642,7 +471,6 @@ def calibrate_sr():
     ssim_by_fov = defaultdict(list)
     psnr_dr1_by_fov = defaultdict(list)
     rmse_bicubic_png_by_fov = defaultdict(list)
-    rmse_bicubic_zscore_by_fov = defaultdict(list)
     # Also track clipping extent per sample for diagnostic reporting
     pct_hr_outside_01_by_fov = defaultdict(list)
 
@@ -662,17 +490,19 @@ def calibrate_sr():
             lr_z = np.load(lr_path).astype(np.float32)
             hr_z = np.load(hr_path).astype(np.float32)
 
-            # Denormalized [0,1] targets — two variants:
-            #   _clip:   np.clip(z * std + mean, 0, 255) / 255  (old pipeline)
-            #   _noclip: (z * std + mean) / 255                  (what paper uses)
+            # HR target in two variants for the RMSE convention comparison:
+            #   _clip:   np.clip(z * std + mean, 0, 255) / 255  (clipped)
+            #   _noclip: (z * std + mean) / 255                  (unclipped)
+            # LR is only needed in _noclip form for the bicubic baseline.
             hr_01_clip = np.clip(hr_z * W2S_STD + W2S_MEAN, 0, 255) / 255.0
             hr_01_noclip = (hr_z * W2S_STD + W2S_MEAN) / 255.0
-            lr_01_clip = np.clip(lr_z * W2S_STD + W2S_MEAN, 0, 255) / 255.0
             lr_01_noclip = (lr_z * W2S_STD + W2S_MEAN) / 255.0
 
-            # Run SR inference with Z-score input (NO clamping here —
-            # we want raw model output in Z-score space)
-            sr_z = full_image_inference_no_clamp(model, lr_z, device)
+            # Run SR inference with Z-score input, unclamped output.
+            # The model was trained on Z-score data (see Decision 19);
+            # we denormalize the output downstream rather than clamping
+            # in-place, so all three RMSE conventions can be computed.
+            sr_z = sliding_window_sr(model, lr_z, device, clamp=False)
 
             # Convert Z-score output -> [0,1] — two variants
             sr_01_clip = np.clip(sr_z * W2S_STD + W2S_MEAN, 0, 255) / 255.0
@@ -691,14 +521,14 @@ def calibrate_sr():
                 (hr_01_noclip < 0) | (hr_01_noclip > 1)
             ))
 
-            # Bicubic baselines (no-clip, matching the paper convention)
+            # Bicubic baseline in [0,1] space (no clip, matching the
+            # paper-candidate reporting space). Z-score bicubic was
+            # computed during the investigation (Decision 19) but is
+            # not surfaced in the final results.
             lr_up_noclip = skimage_resize(
                 lr_01_noclip, hr_01_noclip.shape, order=3, anti_aliasing=False
             )
-            lr_up_z = skimage_resize(lr_z, hr_z.shape, order=3,
-                                      anti_aliasing=False)
             rmse_bicubic_png = rmse_np(hr_01_noclip, lr_up_noclip)
-            rmse_bicubic_z = rmse_np(hr_z, lr_up_z)
 
             rmse_png_clip_by_fov[fov_id].append(rmse_png_clip)
             rmse_png_noclip_by_fov[fov_id].append(rmse_png_noclip)
@@ -706,7 +536,6 @@ def calibrate_sr():
             ssim_by_fov[fov_id].append(s)
             psnr_dr1_by_fov[fov_id].append(p_dr1)
             rmse_bicubic_png_by_fov[fov_id].append(rmse_bicubic_png)
-            rmse_bicubic_zscore_by_fov[fov_id].append(rmse_bicubic_z)
             pct_hr_outside_01_by_fov[fov_id].append(pct_hr_out)
             n_processed += 1
 
@@ -742,13 +571,12 @@ def calibrate_sr():
     fov_ssims = [float(np.mean(v)) for v in ssim_by_fov.values()]
     fov_psnr_dr1 = [float(np.mean(v)) for v in psnr_dr1_by_fov.values()]
     fov_bic_png = [float(np.mean(v)) for v in rmse_bicubic_png_by_fov.values()]
-    fov_bic_z = [float(np.mean(v)) for v in rmse_bicubic_zscore_by_fov.values()]
     fov_pct_hr_out = [float(np.mean(v)) for v in pct_hr_outside_01_by_fov.values()]
 
     print(f"\n{'='*70}")
     print("RESULTS — W2S 'ours' RRDBNet on 13 held-out test FoVs x 3 wavelengths")
     print(f"{'='*70}")
-    print(f"\n  Model RMSE (3 computation conventions):")
+    print("\n  Model RMSE (3 computation conventions):")
     print(f"    clipped [0,1]:   {np.mean(fov_rmse_clip):.4f} +/- "
           f"{np.std(fov_rmse_clip):.4f}  (np.clip(.,0,255)/255 before RMSE)")
     print(f"    unclipped [0,1]: {np.mean(fov_rmse_noclip):.4f} +/- "
@@ -759,7 +587,7 @@ def calibrate_sr():
           f"{np.std(fov_ssims):.4f}")
     print(f"  PSNR (dr=1):  {np.mean(fov_psnr_dr1):.2f} +/- "
           f"{np.std(fov_psnr_dr1):.2f} dB")
-    print(f"\n  Bicubic baseline (avg1 -> SIM, unclipped):")
+    print("\n  Bicubic baseline (avg1 -> SIM, unclipped):")
     print(f"    RMSE:         {np.mean(fov_bic_png):.4f} +/- "
           f"{np.std(fov_bic_png):.4f}")
     print(f"\n  HR saturation: {np.mean(fov_pct_hr_out):.1f}% +/- "
@@ -809,8 +637,8 @@ def calibrate_sr():
         print(f"  SSIM: {our_ssim:.4f} vs {PUB_SSIM} (gap {ssim_gap:.4f})")
         print(f"  Best RMSE candidate: {best_label.strip()} "
               f"(gap {best_gap:.4f})")
-        print(f"  Pipeline correctness verified via SSIM anchor.")
-        print(f"  RMSE gap remains; see Decision 19 for analysis.")
+        print("  Pipeline correctness verified via SSIM anchor.")
+        print("  RMSE gap remains; see Decision 19 for analysis.")
     print(f"{'='*70}")
 
 
