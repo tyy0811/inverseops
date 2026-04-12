@@ -28,6 +28,10 @@ SwinIR shows a small consistent advantage over NAFNet (0.3-0.4 dB across all noi
 
 Same SwinIR architecture and training pipeline, finetuned on the [IXI brain MRI dataset](https://brain-development.org/ixi-dataset/) (T1-weighted, 460/60/60 subject-level split, 581 subjects total). Synthetic Rician noise added at evaluation time as the clinically appropriate noise model for MRI magnitude images. Training plateaued at epoch 12 with diminishing returns; the checkpoint at that epoch is reported.
 
+![IXI Denoising Comparison](figures/ixi/ixi_denoising_comparison.png)
+
+*IXI brain MRI denoising. Left: clean T1 axial slice (subject IXI093). Middle: same slice with Rician noise at sigma=0.10. Right: SwinIR denoised, finetuned from the W2S checkpoint. Per-image metrics shown; see table below for aggregate results across 55 test subjects.*
+
 | | PSNR (dB) | SSIM |
 |---|---|---|
 | Noisy input baseline | 18.86 +/- 0.18 | 0.4446 +/- 0.0707 |
