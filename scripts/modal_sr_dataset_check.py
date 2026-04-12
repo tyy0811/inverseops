@@ -150,12 +150,12 @@ def check_sr_dataset():
     print(f"  Target exact matches:    {n_target_match}/{n_total}")
 
     if n_input_match == n_total and n_target_match == n_total:
-        print(f"\n  B2 CHECK: PASS")
-        print(f"  W2SDataset(task='sr').input  == np.load('avg400/...')")
-        print(f"  W2SDataset(task='sr').target == np.load('sim/...')")
-        print(f"  Ground truth pairing is byte-exact across all 13 test FoVs.")
+        print("\n  B2 CHECK: PASS")
+        print("  W2SDataset(task='sr').input  == np.load('avg400/...')")
+        print("  W2SDataset(task='sr').target == np.load('sim/...')")
+        print("  Ground truth pairing is byte-exact across all 13 test FoVs.")
     else:
-        print(f"\n  B2 CHECK: FAIL")
+        print("\n  B2 CHECK: FAIL")
         print(f"  Mismatches ({len(mismatches)}):")
         for m in mismatches[:10]:
             print(f"    FoV {m['fov']} wl {m['wl']}: "
@@ -164,7 +164,7 @@ def check_sr_dataset():
         sys.exit(1)
 
     # Also check sanity of first sample
-    print(f"\n  First sample sanity:")
+    print("\n  First sample sanity:")
     sample0 = dataset[0]
     inp = sample0["input"].numpy().squeeze(0)
     tgt = sample0["target"].numpy().squeeze(0)

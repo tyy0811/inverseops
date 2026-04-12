@@ -29,8 +29,9 @@ image = modal.Image.debian_slim(python_version="3.11").pip_install("numpy>=1.24"
 @app.function(image=image, volumes={"/data": data_vol}, timeout=120)
 def check_sr_data():
     """Compare SIM and widefield .npy normalization."""
-    import numpy as np
     from pathlib import Path
+
+    import numpy as np
 
     data_root = Path("/data/w2s/data/normalized")
     W2S_MEAN = 154.54
@@ -69,14 +70,17 @@ def check_sr_data():
     if lr_path.exists() and hr_path.exists():
         lr = np.load(lr_path)
         hr = np.load(hr_path)
-        print(f"\n--- Shape check ---")
+        print("\n--- Shape check ---")
         print(f"  LR (avg400): {lr.shape}")
         print(f"  HR (sim):    {hr.shape}")
-        print(f"  Scale ratio: {hr.shape[0] / lr.shape[0]:.1f}x x {hr.shape[1] / lr.shape[1]:.1f}x")
+        print(
+            f"  Scale ratio: {hr.shape[0] / lr.shape[0]:.1f}x x "
+            f"{hr.shape[1] / lr.shape[1]:.1f}x"
+        )
 
     # Also check if SIM normalization constants differ
     # by computing the mean/std across a few SIM images
-    print(f"\n--- SIM normalization constants (sample of 10 images) ---")
+    print("\n--- SIM normalization constants (sample of 10 images) ---")
     sim_dir = data_root / "sim"
     sim_files = sorted(sim_dir.glob("*.npy"))[:10]
     all_means = []
@@ -100,11 +104,11 @@ def check_sr_data():
     if abs(sim_denorm_mean - W2S_MEAN) > 30:
         print(f"\n  *** WARNING: SIM denormalized mean ({sim_denorm_mean:.2f}) is far "
               f"from widefield mean ({W2S_MEAN:.2f})")
-        print(f"  *** SIM likely uses DIFFERENT normalization constants!")
-        print(f"  *** Check W2S supplementary Section 3 for SIM-specific constants.")
+        print("  *** SIM likely uses DIFFERENT normalization constants!")
+        print("  *** Check W2S supplementary Section 3 for SIM-specific constants.")
     else:
-        print(f"\n  SIM denormalized mean is close to widefield mean — "
-              f"likely same normalization.")
+        print("\n  SIM denormalized mean is close to widefield mean — "
+              "likely same normalization.")
 
 
 @app.local_entrypoint()

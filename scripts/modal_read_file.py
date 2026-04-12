@@ -25,7 +25,6 @@ image = modal.Image.debian_slim(python_version="3.11")
 @app.function(image=image, volumes={"/data": data_vol}, timeout=120)
 def read_file(path: str, ls: bool = False):
     """Read a file or list a directory from the data volume."""
-    import os
     from pathlib import Path
 
     p = Path(path)

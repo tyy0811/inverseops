@@ -31,6 +31,8 @@ import math
 from pathlib import Path
 
 import modal
+import torch
+import torch.nn as nn
 
 app = modal.App("inverseops-sr-rmse-sanity")
 data_vol = modal.Volume.from_name("inverseops-data", create_if_missing=True)
@@ -52,8 +54,6 @@ def _source_ignore(path: Path) -> bool:
 image = base_image.add_local_dir(".", remote_path="/app", ignore=_source_ignore)
 
 # Inlined W2S architecture (copied from modal_sr_calibration.py)
-import torch
-import torch.nn as nn
 
 
 def _default_conv(in_c, out_c, k, bias=True):
@@ -150,7 +150,6 @@ def sanity_check():
 
     import numpy as np
     import torch
-    import torch.nn as nn
 
     # Register classes for pickle
     _common_mod = types.ModuleType("model.common")
@@ -289,7 +288,7 @@ def sanity_check():
             abs_diff = np.abs(diff)
             mse = np.mean(diff ** 2)
             rmse = float(np.sqrt(mse))
-            print(f"  --- RMSE computation ---")
+            print("  --- RMSE computation ---")
             print(f"    diff shape: {diff.shape}")
             print(f"    diff range: [{diff.min():.4f}, {diff.max():.4f}]")
             print(f"    |diff| mean: {abs_diff.mean():.4f}  "
@@ -311,7 +310,7 @@ def sanity_check():
             pct_hr_out = 100.0 * float(np.mean(
                 (hr_01_noclip < 0) | (hr_01_noclip > 1)
             ))
-            print(f"  --- No-clip variant (for comparison) ---")
+            print("  --- No-clip variant (for comparison) ---")
             print(f"    SR_01_noclip: "
                   f"[{sr_01_noclip.min():.4f}, {sr_01_noclip.max():.4f}]  "
                   f"{pct_sr_out:.2f}% outside [0,1]")

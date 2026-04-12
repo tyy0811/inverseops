@@ -9,7 +9,8 @@ Re-run this script only if the pinned hash needs to be updated (e.g.
 after intentionally refreshing the W2S volume clone).
 
 Usage:
-    modal run scripts/modal_hash_file.py --path /data/w2s/net_data/trained_srs/ours/avg1/epoch_49.pth
+    modal run scripts/modal_hash_file.py \\
+        --path /data/w2s/net_data/trained_srs/ours/avg1/epoch_49.pth
 """
 
 from __future__ import annotations

@@ -160,10 +160,18 @@ def generate(sigma: float = 0.10):
     fig, axes = plt.subplots(1, 3, figsize=(12, 4.5))
     vmin, vmax = 0.0, 1.0
 
+    noisy_title = (
+        f"Noisy input (sigma={sigma})\n"
+        f"PSNR={noisy_psnr:.1f} dB  SSIM={noisy_ssim:.3f}"
+    )
+    denoised_title = (
+        f"SwinIR denoised\n"
+        f"PSNR={denoised_psnr:.1f} dB  SSIM={denoised_ssim:.3f}"
+    )
     panels = [
         ("Clean reference", clean),
-        (f"Noisy input (sigma={sigma})\nPSNR={noisy_psnr:.1f} dB  SSIM={noisy_ssim:.3f}", noisy),
-        (f"SwinIR denoised\nPSNR={denoised_psnr:.1f} dB  SSIM={denoised_ssim:.3f}", output),
+        (noisy_title, noisy),
+        (denoised_title, output),
     ]
 
     for ax, (title, img) in zip(axes, panels):
@@ -172,7 +180,8 @@ def generate(sigma: float = 0.10):
         ax.axis("off")
 
     plt.suptitle(
-        f"IXI Brain MRI Denoising — Subject IXI{subject_id:03d}, Rician noise sigma={sigma}",
+        f"IXI Brain MRI Denoising — Subject IXI{subject_id:03d}, "
+        f"Rician noise sigma={sigma}",
         fontsize=13,
         fontweight="bold",
         y=0.98,
