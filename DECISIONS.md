@@ -428,3 +428,120 @@ intended.
 **Decision:** Reported as an observation, not corrected. The 1.2 dB gap is
 within the range explained by subject-level variance (test std = 1.13 dB).
 If the gap were 5+ dB it would be a leakage flag requiring investigation.
+
+---
+
+## Decision 19: SR calibration — partial pass anchored on SSIM; RMSE anomaly documented as cross-paper-incomparable
+
+**Date:** 2026-04-12
+
+**Context:** Before launching SR training, we ran a calibration check against
+the W2S pretrained RRDBNet ("ours*", `trained_srs/ours/avg1/epoch_49.pth`)
+through our eval harness, following the same pattern as the denoising
+calibration (Decision 10).
+
+**Scope:** 13 held-out FoVs x 3 wavelengths (n=39), matching the denoising
+calibration test set. Calibration script: `scripts/modal_sr_calibration.py`.
+
+### Primary anchor — SSIM: PASS
+
+| Metric | V3 harness | W2S Table 3 (ours/avg1) | Gap |
+|---|---|---|---|
+| SSIM | 0.7466 +/- 0.0722 | 0.760 | 0.014 |
+
+SSIM is scale-invariant and doesn't depend on clipping or normalization
+convention, so it isolates pipeline correctness from reporting-space choices.
+A match within 0.014 across 39 samples is structural evidence that the
+pipeline reconstructs the SIM target faithfully.
+
+### Pipeline correctness verified across three independent axes
+
+1. **Model loading:** Checkpoint SHA256 pinned to
+   `68f4a12826986d6191a04434fdbb00948b639ba3e00c502118f1724bad83dd25`
+   and verified before `torch.load`. Architecture inlined into the
+   calibration script (no code loaded from the mutable data volume at
+   runtime). Auto-detected `nb=12` from the state dict (the W2S source
+   defaults to `nb=16`, but the actual trained checkpoint has 12 RRDB
+   blocks). The SSIM match within 0.014 confirms weights load into the
+   correct layers.
+2. **Inference pipeline:** Sliding-window assembly (128x128 LR patches,
+   stride 64, 192-pixel interior overwrite) matches W2S `code/SR/test.py`
+   line-by-line. A stitching smoke test verifies zero-gap output coverage
+   on four representative LR shapes (512^2, 500^2, 256^2, 128^2) before
+   real-data inference runs.
+3. **Ground truth pairing:** `W2SDataset(task='sr', split='test')[i]["target"]`
+   is byte-exact equal to `np.load('sim/{fov:03d}_{wl}.npy')` for all 39
+   test samples. Verified by `scripts/modal_sr_dataset_check.py`.
+
+### Secondary anchor — RMSE: unresolved anomaly
+
+We computed RMSE under three candidate conventions and compared to the
+published W2S Table 3 RMSE of 0.340:
+
+| Convention | Mean +/- std | Gap | % relative |
+|---|---|---|---|
+| Clipped [0,1] (`np.clip(.,0,255)/255` before RMSE) | 0.1005 +/- 0.0352 | 0.2395 | 70% |
+| Unclipped [0,1] (`(.*std+mean)/255`, no clip) | 0.1149 +/- 0.0454 | 0.2251 | 66% |
+| Z-score (raw `.npy` comparison) | 0.4439 +/- 0.1754 | 0.1039 | 31% |
+
+None match within +/-0.05. The closest candidate (Z-score) is
+inconsistent with Table 1 denoising RMSEs of 0.044-0.089 from the same
+paper, which can only be in [0,1] space — Z-score RMSEs on this data
+would be O(1)+ in units of ~66 intensity-std. There is no principled
+reason for Table 2/3 to use a different reporting space than Table 1.
+
+**The ruling-out observation.** The W2S paper's published SR RMSE of
+0.340 is **2x worse than bicubic(avg1 -> SIM) on our 13-FoV subset**
+(bicubic = 0.1754 +/- 0.0585, unclipped [0,1]). This is physically
+impossible for a working trained SR model evaluated on a comparable
+test set in the same reporting space. At least one of
+{test set, reporting space, metric definition} must differ from what
+we can reconstruct, and it cannot be pinned down without the W2S
+authors' analysis scripts or test-set split. The RMSE gap is therefore
+not a pipeline bug we can fix — it is a cross-paper incomparability
+along at least one axis we cannot isolate.
+
+**Hypotheses investigated** (each refuted or insufficient; included
+for completeness):
+
+- **Resolution bug** (SR output vs HR target at different scales).
+  Refuted. `scripts/modal_sr_rmse_sanity.py` prints shapes inside the
+  RMSE computation for 7 samples: all SR outputs are (1024, 1024), all
+  HR targets are (1024, 1024), diffs are (1024, 1024).
+- **Clipping artifact** ([0,255] clip before metric destroys bright
+  pixels). Real but insufficient to close the gap. Aggregate effect is
+  +14% (clipped 0.1005 -> unclipped 0.1149). Individual samples with
+  high saturation (e.g. FoV 48 wl 0, 18% pixels above 255) see larger
+  effects (0.26 -> 0.34) but do not dominate the 39-sample mean.
+- **Z-score reporting space.** Refuted by paper self-consistency
+  (Table 1 RMSEs 0.044-0.089 can only be in [0,1] space).
+- **Subset composition** (our 13 FoVs != paper's 40 FoVs). Plausible
+  but cannot close a 3x gap alone, and the direction is wrong: a
+  harder test set would make our harness *higher*, not lower. The
+  structural ruling-out observation above still stands regardless.
+
+**Decision.** Train SwinIR SR on our `W2SDataset(task='sr')` pipeline,
+which uses [0,1] denormalized PNG space (the standard SR convention
+used by SwinIR and most public SR codebases). Report RMSE / PSNR / SSIM
+in [0,1] space. Cite SSIM as the cross-paper calibration anchor
+(matches published within 0.014 across 39 samples). Use
+bicubic(avg400 -> SIM) as the interpretable secondary baseline within
+the V3 harness.
+
+Do **not** attempt direct numerical comparison to W2S Table 3 RMSE
+values. The ruling-out observation demonstrates that at least one axis
+of comparison differs from what we can reconstruct, and the gap is
+unresolvable on our side.
+
+**What would tighten this:** Access to the W2S authors' analysis
+scripts (not in the public release), the exact 40-FoV test-set split
+they used, or a subsequent paper citing Table 3 with enough methodology
+detail to identify the convention. Until then, SSIM is the primary
+cross-paper anchor for SR numbers on this dataset.
+
+**Reproducibility:** `modal run scripts/modal_sr_calibration.py` on
+the `inverseops-data` Modal volume reproduces all numbers in this
+entry (SSIM, all three RMSE conventions, bicubic baseline) end-to-end
+on all 13 test FoVs. See also `scripts/modal_sr_rmse_sanity.py`
+(shape/range sanity check) and `scripts/modal_sr_dataset_check.py`
+(ground-truth pairing check).

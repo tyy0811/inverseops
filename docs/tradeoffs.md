@@ -149,6 +149,75 @@ by the checklist, produced correct results on the first attempt. Total pre-fligh
 cost: ~30 minutes. Total saved: ~6 hours of GPU compute that would have been
 wasted debugging post-hoc.
 
+### M10. Suspicious Single-Point Agreements Are Not Evidence
+
+Four times during SR calibration work a hypothesis was fit to a single
+suspicious number and had to be walked back when aggregate data arrived.
+The pattern is the same each time:
+
+1. **V1 legacy (context for comparison).** V1 reported SwinIR SR at a
+   "36.24 dB PSNR" headline number measured from n=2 test captures of a
+   single specimen. A single-digit sample size fit the narrative
+   "SwinIR works on microscopy" without generating enough data to
+   falsify it. See M1.
+
+2. **n=1 SR calibration (this session).** The first SR calibration run
+   evaluated on a single FoV (FoV 10, wavelength 0) and produced RMSE
+   0.053 in [0,1] space. The result was interpreted as "pipeline
+   correct, reporting space must differ from published" and a pass
+   draft was started. Re-running at n=39 produced 0.1005 +/- 0.0352 —
+   almost double — and FoV 10 wl 0 turned out to be the easiest of all
+   39 samples.
+
+3. **Z-score reporting-space hypothesis (this session).** After n=39
+   showed the gap was real, the working hypothesis became "Table 2/3
+   RMSE must be in Z-score space" because the Z-score RMSE of 0.4439
+   was "closest" to 0.340 (gap 0.104 vs gap 0.24 for [0,1] space).
+   External review caught that the hypothesis was inconsistent with
+   Table 1 denoising RMSEs (0.044-0.089, which can only be in [0,1]
+   space), and the closeness was coincidence from comparing one number
+   (0.340) against only three candidate conventions.
+
+4. **Clipping-artifact hypothesis (this session).** A sanity check
+   found FoV 48 wl 0 had 18% saturation and its unclipped RMSE was
+   0.3388 — almost exactly 0.340. This was briefly called "the answer"
+   before aggregating. Running unclipped RMSE across all 13 FoVs gave
+   0.1149, only 14% higher than clipped 0.1005 — not enough to close
+   the gap. The FoV 48 wl 0 match was again a coincidence at n=1.
+
+**The pattern.** Each failure fit a hypothesis to a single suspicious
+number and let the hypothesis survive until aggregate data arrived.
+Three instances of the same failure mode in one session is not
+coincidence — it's a structural bias toward making the data confirm
+what the analysis wants.
+
+**The lesson.** Suspicious single-point agreements are not evidence;
+only aggregate distributions are. A number that "looks right" on one
+sample or one convention should create a falsification target — *run
+the aggregate and see if it holds* — not a conclusion. The denoising
+calibration (Decision 10) used 13 FoVs x 3 wavelengths from the start;
+SR calibration should have done the same from step one. The n=1 and
+single-convention spot checks are for debugging the script, not for
+producing calibration-grade numbers.
+
+**Fix.** `scripts/modal_sr_calibration.py` now iterates over all 13
+test FoVs x 3 wavelengths by default and produces mean +/- std. It
+reports RMSE under all three candidate conventions (clipped [0,1],
+unclipped [0,1], Z-score) so that no single convention can be
+cherry-picked. Single-FoV spot checks are labeled as diagnostic-only
+in the script's docstring. See Decision 19 for the calibration outcome
+and the structural ruling-out observation that refuted the "hidden
+reporting convention" hypothesis altogether.
+
+**Cost if not caught.** The rationalizations, if shipped, would have
+produced a DECISIONS.md entry claiming SR calibration passed on a
+cherry-picked convention. A reviewer re-running the calibration on any
+other convention, or checking bicubic-vs-published, would have caught
+it and the V3 methodology narrative would have taken a credibility hit
+exactly where it is supposed to be strongest. The fix cost ~1 hour of
+additional diagnostic work; the unshipped cost would have been the V3
+credibility gap that V1 was supposed to close.
+
 ---
 
 ## V2 Design Tradeoffs
