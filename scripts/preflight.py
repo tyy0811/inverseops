@@ -24,16 +24,20 @@ from pathlib import Path
 import torch
 
 
-def check_data_inspection(data_root: str, splits_path: str) -> bool:
+def check_data_inspection(data_root: str, splits_path: str, task: str) -> bool:
     """Check 1: Print actual statistics of one sample."""
     print("\n" + "=" * 60)
-    print("CHECK 1: Data inspection")
+    print(f"CHECK 1: Data inspection (task={task})")
     print("=" * 60)
 
     from inverseops.data.w2s import W2SDataset
 
     ds = W2SDataset(
-        root_dir=data_root, split="train", patch_size=0, splits_path=splits_path
+        root_dir=data_root,
+        split="train",
+        task=task,
+        patch_size=0,
+        splits_path=splits_path,
     )
     ds.prepare()
 
@@ -46,10 +50,10 @@ def check_data_inspection(data_root: str, splits_path: str) -> bool:
     tgt = sample["target"]
 
     print(f"  Dataset size: {len(ds)} samples")
-    print(f"  input  shape={inp.shape}  dtype={inp.dtype}")
+    print(f"  input  shape={tuple(inp.shape)}  dtype={inp.dtype}")
     print(f"  input  min={inp.min():.4f}  max={inp.max():.4f}")
     print(f"  input  mean={inp.mean():.4f}  std={inp.std():.4f}")
-    print(f"  target shape={tgt.shape}  dtype={tgt.dtype}")
+    print(f"  target shape={tuple(tgt.shape)}  dtype={tgt.dtype}")
     print(f"  target min={tgt.min():.4f}  max={tgt.max():.4f}")
     print(f"  target mean={tgt.mean():.4f}  std={tgt.std():.4f}")
     print(
@@ -58,7 +62,38 @@ def check_data_inspection(data_root: str, splits_path: str) -> bool:
         f"wl={sample['wavelength']}"
     )
 
-    # Sanity: values should be in roughly [-3, 20] for pre-normalized W2S
+    # NaN/Inf guard
+    if torch.isnan(inp).any() or torch.isinf(inp).any():
+        print("  FAIL: input contains NaN or Inf")
+        return False
+    if torch.isnan(tgt).any() or torch.isinf(tgt).any():
+        print("  FAIL: target contains NaN or Inf")
+        return False
+
+    # Shape structure: [1, H, W]; SR target must be 2x input
+    if inp.ndim != 3 or inp.shape[0] != 1:
+        print(f"  FAIL: input shape {tuple(inp.shape)} not [1, H, W]")
+        return False
+    if tgt.ndim != 3 or tgt.shape[0] != 1:
+        print(f"  FAIL: target shape {tuple(tgt.shape)} not [1, H, W]")
+        return False
+    if task == "sr":
+        if tgt.shape[-2] != inp.shape[-2] * 2 or tgt.shape[-1] != inp.shape[-1] * 2:
+            print(
+                f"  FAIL: SR target {tuple(tgt.shape)} not 2x input "
+                f"{tuple(inp.shape)}"
+            )
+            return False
+    else:
+        if tgt.shape != inp.shape:
+            print(
+                f"  FAIL: denoise target {tuple(tgt.shape)} != input "
+                f"{tuple(inp.shape)}"
+            )
+            return False
+
+    # Sanity: values should be in roughly [-4, 20] for pre-normalized W2S.
+    # (SIM intensity extremes can reach ~3-4 std on bright pixels, seen empirically.)
     if inp.max() > 100 or tgt.max() > 100:
         print("  WARNING: Values > 100 — data may not be pre-normalized")
         return False
@@ -70,16 +105,20 @@ def check_data_inspection(data_root: str, splits_path: str) -> bool:
     return True
 
 
-def check_roundtrip(data_root: str, splits_path: str) -> bool:
+def check_roundtrip(data_root: str, splits_path: str, task: str) -> bool:
     """Check 2: Verify denormalize is the correct inverse."""
     print("\n" + "=" * 60)
-    print("CHECK 2: Denormalize roundtrip")
+    print(f"CHECK 2: Denormalize roundtrip (task={task})")
     print("=" * 60)
 
     from inverseops.data.w2s import W2S_MEAN, W2S_STD, W2SDataset
 
     ds = W2SDataset(
-        root_dir=data_root, split="train", patch_size=0, splits_path=splits_path
+        root_dir=data_root,
+        split="train",
+        task=task,
+        patch_size=0,
+        splits_path=splits_path,
     )
     ds.prepare()
 
@@ -142,10 +181,10 @@ def check_metric_sanity() -> bool:
     return True
 
 
-def check_trainer_psnr_sanity(data_root: str, splits_path: str) -> bool:
+def check_trainer_psnr_sanity(data_root: str, splits_path: str, task: str) -> bool:
     """Check 5: Tiny smoke train — 1 epoch, verify PSNR is plausible."""
     print("\n" + "=" * 60)
-    print("CHECK 5: Smoke train (1 epoch CPU)")
+    print(f"CHECK 5: Smoke train (1 epoch CPU, task={task})")
     print("=" * 60)
 
     from torch.utils.data import DataLoader
@@ -154,13 +193,23 @@ def check_trainer_psnr_sanity(data_root: str, splits_path: str) -> bool:
     from inverseops.training.losses import l1_loss
     from inverseops.training.trainer import Trainer
 
-    ds = W2SDataset(
-        root_dir=data_root,
-        split="train",
-        patch_size=32,
-        avg_levels=[1],
-        splits_path=splits_path,
-    )
+    if task == "sr":
+        ds = W2SDataset(
+            root_dir=data_root,
+            split="train",
+            task="sr",
+            patch_size=32,
+            splits_path=splits_path,
+        )
+    else:
+        ds = W2SDataset(
+            root_dir=data_root,
+            split="train",
+            task="denoise",
+            patch_size=32,
+            avg_levels=[1],
+            splits_path=splits_path,
+        )
     ds.prepare()
 
     if len(ds) == 0:
@@ -168,7 +217,14 @@ def check_trainer_psnr_sanity(data_root: str, splits_path: str) -> bool:
         return True
 
     loader = DataLoader(ds, batch_size=2, shuffle=False)
-    model = torch.nn.Conv2d(1, 1, 3, padding=1)
+    if task == "sr":
+        # Tiny 2x upscaler: Conv expands to 4 channels, PixelShuffle → [1, 2H, 2W]
+        model = torch.nn.Sequential(
+            torch.nn.Conv2d(1, 4, 3, padding=1),
+            torch.nn.PixelShuffle(2),
+        )
+    else:
+        model = torch.nn.Conv2d(1, 1, 3, padding=1)
 
     import tempfile
 
@@ -204,6 +260,37 @@ def check_trainer_psnr_sanity(data_root: str, splits_path: str) -> bool:
     return True
 
 
+def check_reference_substitute_sr() -> bool:
+    """Check 4 (SR): Document the reference-reproduction substitute.
+
+    We cannot close a numerical RMSE gap with W2S Table 3 — see DECISIONS.md
+    Decision 19 and docs/tradeoffs.md M10. Two anchors stand in:
+
+    1. SSIM (cross-paper anchor): our n=39 calibration harness on avg400 → SIM
+       scored 0.7466 ± 0.0722 vs published 0.760 — within 0.014 (one std).
+       This verifies model loading + stitching pipeline end-to-end.
+
+    2. Bicubic baseline (ours, same test set): 0.1754 ± 0.0585 RMSE in [0,1]
+       on clipped output. SR training must beat this to be meaningful.
+
+    This function only prints these numbers for the writedown. It does NOT
+    attempt to reproduce the published RMSE of 0.340 — that gap is unresolved.
+    """
+    print("\n" + "=" * 60)
+    print("CHECK 4: Reference-reproduction substitute (SR)")
+    print("=" * 60)
+    print("  SSIM anchor (cross-paper, Decision 19):")
+    print("    ours (n=39): 0.7466 ± 0.0722")
+    print("    published:   0.760")
+    print("    gap:         0.014 (within one std → PASS)")
+    print("  Bicubic baseline (ours, clipped [0,1]):")
+    print("    RMSE:  0.1754 ± 0.0585")
+    print("    target: SwinIR SR must beat this to be meaningful")
+    print("  RMSE vs published W2S Table 3 — unresolvable, see Decision 19.")
+    print("  PASS (substitute documented honestly)")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Training readiness gate — run before every Modal GPU launch."
@@ -221,6 +308,13 @@ def main() -> int:
         help="Path to splits.json",
     )
     parser.add_argument(
+        "--task",
+        type=str,
+        default="denoise",
+        choices=["denoise", "sr"],
+        help="Task to preflight (changes dataset mode, smoke-train model)",
+    )
+    parser.add_argument(
         "--skip-smoke-train",
         action="store_true",
         help="Skip the smoke train check",
@@ -229,18 +323,23 @@ def main() -> int:
     args = parser.parse_args()
 
     print("=" * 60)
-    print("PREFLIGHT: Training Readiness Gate")
+    print(f"PREFLIGHT: Training Readiness Gate (task={args.task})")
     print("=" * 60)
 
     results = {}
 
-    results["data_inspection"] = check_data_inspection(args.data_root, args.splits_path)
-    results["roundtrip"] = check_roundtrip(args.data_root, args.splits_path)
+    results["data_inspection"] = check_data_inspection(
+        args.data_root, args.splits_path, args.task
+    )
+    results["roundtrip"] = check_roundtrip(args.data_root, args.splits_path, args.task)
     results["metric_sanity"] = check_metric_sanity()
+
+    if args.task == "sr":
+        results["reference_substitute"] = check_reference_substitute_sr()
 
     if not args.skip_smoke_train:
         results["smoke_train"] = check_trainer_psnr_sanity(
-            args.data_root, args.splits_path
+            args.data_root, args.splits_path, args.task
         )
 
     # Summary

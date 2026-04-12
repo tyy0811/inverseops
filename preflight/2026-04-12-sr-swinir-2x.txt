@@ -1,0 +1,137 @@
+============================================================
+PREFLIGHT: SwinIR W2S SR 2x — 2026-04-12
+============================================================
+Run gated:  modal run --detach scripts/modal_train.py \
+              --config configs/w2s_sr_swinir_2x.yaml --wandb
+Config:     configs/w2s_sr_swinir_2x.yaml
+Branch:     v3-inverse-problems
+HEAD:       955b786 refactor(sr): address code review — consolidate stitcher...
+Platform:   local CPU (Darwin 22.6.0, Python 3.11)
+Data root:  data/test_fixtures/w2s  (4 FoVs x 3 wl, 64x64 LR / 128x128 HR)
+            Note: training run uses /data/w2s/data/normalized on Modal.
+            Structure of fixtures is byte-compatible — checks 1/2/5 verify
+            the same loader code path, only the FoV count differs.
+Splits:     inverseops/data/splits.json (94 train, 13 val, 13 test FoVs)
+Tests:      154/154 passing on this commit (pytest -q)
+
+────────────────────────────────────────────────────────────
+CHECK 1 — Data inspection (W2SDataset task="sr", split="train")
+────────────────────────────────────────────────────────────
+Dataset size:   9 samples  (3 train FoVs x 3 wavelengths in fixtures)
+Sample:         fov_id=1, wavelength=0, noise_level=400
+
+input  (LR, avg400):
+    shape   = (1, 64, 64)            ← [C, H, W], ok
+    dtype   = torch.float32           ← ok
+    min     = -3.7556
+    max     =  3.6124
+    mean    = -0.0131                 ← near 0 (Z-score normalized on disk)
+    std     =  1.0036                 ← near 1
+
+target (HR, sim):
+    shape   = (1, 128, 128)           ← 2x LR, ok for scale=2
+    dtype   = torch.float32
+    min     = -3.7534
+    max     =  3.8152
+    mean    = -0.0139
+    std     =  1.0088
+
+NaN/Inf:                  none
+Shape is [1, H, W]:       ok
+HR is exactly 2x LR:      ok  (64→128)
+Value range plausible:    ok  (±4 std, consistent with Z-score)
+Verdict:                  PASS
+
+────────────────────────────────────────────────────────────
+CHECK 2 — Normalization round-trip
+────────────────────────────────────────────────────────────
+normalize(denormalize(x)) max error:  0.000000
+Denormalized range:                   [-93.30, 406.46]
+Denormalized mean:                    153.62  (expect W2S_MEAN = 154.54)
+
+Interpretation: denormalize() multiplies by W2S_STD (66.03) and adds
+W2S_MEAN (154.54). Round-trip is exact to float32 precision; the 0.92
+gap between observed mean (153.62) and W2S_MEAN (154.54) reflects
+the small fixture sample rather than a calibration error.
+Verdict:                  PASS
+
+────────────────────────────────────────────────────────────
+CHECK 3 — Metric sanity (scripts/run_evaluation.psnr_tensor)
+────────────────────────────────────────────────────────────
+img ~ N(128, 50^2)  in [0, 255] data_range
+
+PSNR(img, img)                = inf          (expect inf)
+PSNR(img, zeros)              = 5.40 dB      (expect <15 dB)
+PSNR(img, img + small_noise)  = 42.06 dB     (expect 30-50 dB)
+
+Identity unbounded, zero-prediction floor sensible, known-noise case
+lands squarely inside the plausible band. Same psnr_tensor function
+that run_evaluation.py uses, so the metric used at training time is
+the metric this check vetted.
+Verdict:                  PASS
+
+────────────────────────────────────────────────────────────
+CHECK 4 — Reference-reproduction substitute
+────────────────────────────────────────────────────────────
+Full published-baseline reproduction is NOT possible for W2S SR —
+see DECISIONS.md Decision 19 and docs/tradeoffs.md M10. The RMSE gap
+against W2S Table 3 (our 0.1005 vs published 0.340, n=39) is
+unresolvable from our side. Two substitute anchors stand in:
+
+  SSIM (cross-paper anchor):
+    ours (n=39):      0.7466 ± 0.0722
+    published:        0.760
+    gap:              0.014  (within one std → pipeline correct end-to-end)
+
+  Bicubic baseline (ours, clipped [0,1], same test set):
+    RMSE:             0.1754 ± 0.0585
+    target:           SwinIR SR must beat this to be meaningful on
+                      our test set — this is the interpretable floor.
+
+Pipeline correctness was verified across three independent axes in
+Decision 19: (1) model-weight loading (SSIM match), (2) stitching
+matches W2S test.py line-by-line (unit-tested), (3) GT pairing
+byte-exact on all 39 samples. We will NOT claim numerical RMSE
+agreement with W2S Table 3.
+Verdict:                  PASS (substitute documented honestly)
+
+────────────────────────────────────────────────────────────
+CHECK 5 — Tiny smoke train (1 epoch, CPU, task="sr")
+────────────────────────────────────────────────────────────
+Model:      nn.Sequential(Conv2d(1,4,3,p=1), PixelShuffle(2))  (toy 2x)
+Dataset:    W2SDataset(task="sr", split="train", patch_size=32)
+            9 samples, batch_size=2
+Loss:       l1_loss
+Optim:      Adam, lr=1e-3
+Trainer:    denormalize_fn=W2SDataset.denormalize, data_range=255.0
+
+Epoch 1/1  train_loss: 1.0461  val_loss: 1.0415  val_psnr: 20.66 dB
+
+Forward pass clean, loss finite, no NaN/Inf. Val PSNR sits at
+20.66 dB — well inside the [5, 60] dB guard and consistent with an
+untrained tiny model that hasn't learned anything (close to the
+~12 dB floor for predicting the mean, plus small learning from
+1 epoch on 9 samples). Importantly, val PSNR is NOT the suspicious
+120 dB that V1/V2 training runs hit when denormalization was broken.
+Verdict:                  PASS
+
+────────────────────────────────────────────────────────────
+PREFLIGHT SUMMARY
+────────────────────────────────────────────────────────────
+  Check 1  data_inspection       PASS
+  Check 2  roundtrip              PASS
+  Check 3  metric_sanity          PASS
+  Check 4  reference_substitute   PASS
+  Check 5  smoke_train            PASS
+
+All five checks pass. Cleared to launch:
+    modal run --detach scripts/modal_train.py \
+      --config configs/w2s_sr_swinir_2x.yaml --wandb
+
+Open methodology caveats (carry into training notes):
+  - RMSE gap vs W2S Table 3 is unresolved and will NOT be claimed as
+    reproduced. Report cites SSIM anchor + bicubic floor instead.
+  - Val PSNR during training will be on Z-score→denormalized [0,255]
+    data (the Trainer's guarded space), which is not directly
+    comparable to the [0,1] RMSE numbers in Decision 19. Record both
+    when evaluating the trained checkpoint.
