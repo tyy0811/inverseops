@@ -8,7 +8,7 @@ Portfolio project demonstrating production ML engineering and methodology discip
 
 ![W2S Denoising Comparison](figures/v3/w2s_denoising_comparison.png)
 
-*W2S fluorescence microscopy denoising. Left to right: noisy single-frame capture, 400-frame average (clean reference), SwinIR denoised, NAFNet denoised. Right: SIM high-resolution ground truth (2x) — the target for future super-resolution work, not a model output.*
+*W2S fluorescence microscopy denoising. Left to right: noisy single-frame capture, 400-frame average (clean reference), SwinIR denoised, NAFNet denoised. Right: SIM high-resolution ground truth (2x) — the target for super-resolution (see SR results below).*
 
 ## Results
 
@@ -23,6 +23,18 @@ SwinIR and NAFNet retrained on 94 W2S FoVs with real microscopy noise (Poisson-G
 | avg16 | 41.09 +/- 2.41 | 0.971 +/- 0.009 | 40.69 +/- 2.47 | 0.970 +/- 0.009 |
 
 SwinIR shows a small consistent advantage over NAFNet (0.3-0.4 dB across all noise levels). Both models show the expected pattern of increasing PSNR with decreasing noise.
+
+### Super-Resolution (clean LR → SIM, 2x)
+
+SwinIR-M fine-tuned from DIV2K classical-SR pretrain on W2S clean-LR super-resolution (avg400 as LR input, SIM as HR target). Evaluated on 13 held-out test FoVs x 3 wavelengths (n=39) through the same harness that anchored the [Decision 19 SR calibration](DECISIONS.md). Matched baseline is bicubic(avg400 → SIM) computed on the same samples.
+
+| | PSNR (dB) | SSIM | RMSE [0,1] |
+|---|---|---|---|
+| Bicubic(avg400 → SIM) baseline | 19.87 +/- 2.63 | 0.7826 +/- 0.0597 | 0.1151 +/- 0.0320 |
+| **SwinIR SR (ours)** | **21.22 +/- 2.88** | **0.7938 +/- 0.0567** | **0.1003 +/- 0.0358** |
+| Improvement | **+1.35 dB** | **+0.0111** | **-0.0149** |
+
+Paired per-FoV delta is positive on 12 of 13 test FoVs (mean +1.35 dB, std 0.88 dB across FoVs); one FoV regresses by 0.43 dB. This is a modest but honest result: a bounded improvement over the matched baseline on a small (282-sample) clean-LR transfer task with a DIV2K-pretrained backbone, evaluated through the same calibration harness that passed the Decision 19 SSIM anchor. No cross-paper RMSE claim — see [DECISIONS.md](DECISIONS.md) Decision 19 for why the W2S Table 3 RMSE of 0.340 is not a reproducible comparison target, and Decision 20 for the training and eval narrative. Raw per-FoV numbers in [`artifacts/sr_eval/w2s_swinir_sr_2x.json`](artifacts/sr_eval/w2s_swinir_sr_2x.json).
 
 ### Cross-Domain Transfer to Brain MRI (IXI)
 

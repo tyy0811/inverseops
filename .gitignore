@@ -8,6 +8,7 @@
 artifacts/*
 !artifacts/baseline/
 !artifacts/compare_finetuned/
+!artifacts/sr_eval/
 artifacts/**/*.png
 
 # Outputs — ignore all except modal training summary

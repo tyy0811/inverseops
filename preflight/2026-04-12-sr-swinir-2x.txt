@@ -135,3 +135,42 @@ Open methodology caveats (carry into training notes):
     data (the Trainer's guarded space), which is not directly
     comparable to the [0,1] RMSE numbers in Decision 19. Record both
     when evaluating the trained checkpoint.
+
+────────────────────────────────────────────────────────────
+CORRECTION NOTE — appended 2026-04-12, post-eval
+────────────────────────────────────────────────────────────
+This writedown is the gate artifact as-run and its PASS verdict
+stands. But CHECK 4's bicubic baseline was misattributed at the time
+of writing, and the post-eval result (Decision 20) exposed the error.
+
+What CHECK 4 originally cited, from Decision 19:
+    Bicubic baseline (ours, clipped [0,1]):
+      RMSE:  0.1754 ± 0.0585
+That number is bicubic(avg1 → SIM) at n=39 — the baseline Decision 19
+used to rule out the W2S Table 3 RMSE of 0.340 as physically
+implausible. It is NOT the matched baseline for this training run,
+which uses avg400 as LR input.
+
+The matched bicubic(avg400 → SIM) baseline (cleaner LR input, lower
+RMSE) was never computed at n=39 before training. It was computed as
+part of the Decision 20 eval pass:
+    Bicubic(avg400 → SIM) test split, clipped [0,1]:
+      RMSE: 0.1151 ± 0.0320
+      PSNR: 19.8659 ± 2.6263 dB  (dr=1)
+      SSIM: 0.7826 ± 0.0597
+
+Consequence: any "SwinIR beats bicubic by 10+ dB" math derived from
+0.1754 compared the trained model against the wrong (harder) floor.
+The honest matched delta on 13 test FoVs x 3 wl (from Decision 20):
+    +1.3505 dB PSNR clipped
+    +0.0111 SSIM
+    12/13 FoVs positive (only FoV 110 regresses, by -0.43 dB)
+
+The gate-artifact status of this writedown is unchanged — the five
+checks still ran and still passed. What is corrected here is the
+interpretation of CHECK 4's bicubic number as an upper-bound floor
+for the training run. Future SR preflights that cite Decision 19's
+bicubic number must either (a) run the matched bicubic at n=39 first,
+or (b) explicitly document that the cited bicubic is the avg1 variant
+and not the matched baseline. See DECISIONS.md Decision 20 for the
+full eval pass and reasoning.

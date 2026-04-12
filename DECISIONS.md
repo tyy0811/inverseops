@@ -545,3 +545,150 @@ entry (SSIM, all three RMSE conventions, bicubic baseline) end-to-end
 on all 13 test FoVs. See also `scripts/modal_sr_rmse_sanity.py`
 (shape/range sanity check) and `scripts/modal_sr_dataset_check.py`
 (ground-truth pairing check).
+
+---
+
+## Decision 20: SwinIR W2S SR 2x — ship +1.35 dB over matched bicubic
+
+**Date:** 2026-04-12
+
+**Context:** With the Decision 19 calibration harness in place, we
+trained SwinIR-M (classical SR, x2, DIV2K-pretrained) on the W2S
+clean-LR SR task (avg400 -> SIM, 94 train FoVs x 3 wavelengths = 282
+samples). Training was gated by `preflight/2026-04-12-sr-swinir-2x.txt`
+(five checks passed). The run completed in 8.7 min on an A100, early-
+stopped at epoch 14 with best at epoch 4 (280 global steps), best val
+PSNR (trainer, patch-level, denormalized [0,255] clipped) 25.75 dB.
+
+**Scope:** Evaluation through the same n=39 harness that anchored
+Decision 19 (13 test FoVs x 3 wavelengths), extended to also run on
+the 13 val FoVs for trainer-space reconciliation. Eval script:
+`scripts/modal_sr_eval_swinir.py`. Raw results (all per-FoV arrays,
+both splits, both RMSE conventions): `artifacts/sr_eval/w2s_swinir_sr_2x.json`.
+
+### Primary findings — SwinIR SR on 13 test FoVs (n=39)
+
+| Metric | SwinIR | Bicubic(avg400 -> SIM) matched | Delta |
+|---|---|---|---|
+| PSNR clipped [0,1], dr=1   | 21.2164 +/- 2.8787 dB | 19.8659 +/- 2.6263 dB | +1.3505 dB |
+| PSNR unclipped [0,1], dr=1 | 20.1107 +/- 3.5010 dB | 18.5432 +/- 3.5568 dB | +1.5675 dB |
+| RMSE clipped [0,1]         | 0.1003 +/- 0.0358     | 0.1151 +/- 0.0320     | -0.0149    |
+| RMSE unclipped [0,1]       | 0.1216 +/- 0.0533     | 0.1447 +/- 0.0588     | -0.0231    |
+| SSIM                       | 0.7938 +/- 0.0567     | 0.7826 +/- 0.0597     | +0.0111    |
+
+The matched bicubic baseline is bicubic(avg400 -> SIM) — cleaner LR
+input than the bicubic(avg1 -> SIM) baseline cited in Decision 19, and
+therefore a stronger floor for an avg400-trained model to beat.
+
+### Per-FoV paired sign check
+
+Per-FoV PSNR_clip delta (SwinIR - bicubic), test split, sorted by FoV:
+
+  FoV  10: +0.0147   FoV  31: +1.9360   FoV  48: +1.7575
+  FoV  80: +0.3124   FoV  85: +1.6702   FoV  88: +1.6099
+  FoV  89: +0.7094   FoV  93: +2.5689 (max)
+  FoV  94: +1.7839   FoV  96: +2.3677   FoV  97: +1.5201
+  FoV 110: -0.4274 (min, only regression)
+  FoV 115: +1.7337
+
+Paired delta: mean +1.3505 dB, std 0.8768 dB across FoVs. **12/13 FoVs
+positive.** The per-sample std of the unpaired PSNR distribution (2.88
+dB, above) is larger than the mean delta, which would make an unpaired
+test look marginal, but the paired per-FoV std is smaller than the
+mean delta — this is a clean signal, not noise. No single FoV
+dominates the aggregate, and the worst case (FoV 110, -0.43 dB) does
+not alone flip the aggregate sign.
+
+### Val-split reconciliation (trainer 25.75 dB vs harness)
+
+The trainer's `best_val_psnr` of 25.75 dB is computed on center-cropped
+64x64 LR patches from val FoVs, denormalized, clamped to [0, 255],
+with PSNR in dr=255 space — numerically equivalent to PSNR(dr=1) on
+clipped [0,1]. The eval harness on the same val split, full image:
+
+| Space | PSNR |
+|---|---|
+| Trainer val PSNR (patch center-crop, [0,255] clipped)   | 25.7454 dB |
+| Eval full-image val PSNR (stitched, clipped [0,1], dr=1) | 23.1598 dB |
+| Gap (full-image - patch)                                 | -2.5855 dB |
+
+**The full-image number is 2.59 dB lower than the trainer's headline.**
+This is a known patch-vs-full-image bias pattern: the Trainer validates
+on center-cropped 64x64 regions, which on W2S images concentrate on
+the dense fluorescence content in the interior of the FoV. Full-image
+stitched evaluation includes the darker, less-informative borders in
+the mean, which lowers the aggregate PSNR. The trainer number is real
+but measures a favorable subregion; the full-image number is the
+honest headline and is what this decision cites.
+
+This reconciliation *also* rules out the "data_range=1.0 wrong-units
+bug" hypothesis that was open after the initial training run:
+`run_training.py:153` forwards `DATASET_DATA_RANGE["w2s"] = 255.0` to
+the Trainer, and `trainer.py` clamps to [0, 255] and passes dr=255
+through to `_compute_psnr`. The 25.75 dB is in the same space as the
+23.16 dB full-image number (modulo the crop bias).
+
+### Ship, not retrain
+
+The result is modest: +1.35 dB PSNR clipped, +0.0111 SSIM, 12/13 FoVs
+positive on the matched baseline. A longer / lower-LR / warmup-enabled
+retrain could plausibly extract more — but the asymmetric risk makes
+it a poor bet:
+
+- **Dataset is small.** 282 samples, 70 training steps per epoch.
+  More steps on this dataset-size fit the training set harder rather
+  than generalizing; literature numbers on DF2K with 100k-1M steps are
+  not transferable.
+- **Transfer learning has a bounded ceiling here.** DIV2K-pretrained
+  natural-image SR -> fluorescence microscopy clean-LR -> SIM is a
+  domain-shift transfer on a task where the input is already clean.
+  Most of the learnable signal is in the sub-pixel structure, which
+  is bounded by the SIM target's own resolution.
+- **Shipping one honest result is better than shipping two runs to
+  reconcile.** A retrain that improves the numbers replaces this
+  decision; a retrain that doesn't forces a writeup where both runs
+  are cited with why one was picked. The V3 narrative is
+  "documented honesty, anchored on the calibration harness" — a single
+  result that cohere with the harness is a cleaner narrative than two
+  runs bolted together.
+- **Visa clock.** Time spent on a retrain with diminishing returns is
+  time not spent on the next milestone.
+
+**Decision:** Ship the epoch-4 checkpoint as the V3 SR result.
+Headline: SwinIR SR achieves 21.22 +/- 2.88 dB PSNR / 0.7938 +/- 0.0567
+SSIM / 0.1003 +/- 0.0358 RMSE on 13 held-out test FoVs x 3 wavelengths,
+beating a matched bicubic(avg400 -> SIM) baseline by +1.35 dB / +0.0111
+SSIM with 12/13 FoVs showing positive paired delta.
+
+### Explicit acknowledgments
+
+- **This is a modest result, not a dominant one.** +1.35 dB over
+  matched bicubic on clean-LR SR is a real improvement but small in
+  absolute terms. The portfolio claim is "V3 produced a calibrated SR
+  pipeline through the same harness that anchored Decision 19, with a
+  bounded but positive improvement over the matched baseline" — not
+  "SwinIR dominates microscopy SR."
+- **Do not cite the `+10.6 dB over bicubic floor` number** that the
+  original `preflight/2026-04-12-sr-swinir-2x.txt` writedown computed
+  from Decision 19's 0.1754 RMSE. That 0.1754 is bicubic(avg1 -> SIM),
+  which does not match the avg400-LR training setup. The matched floor
+  (this entry) is bicubic(avg400 -> SIM) = 0.1151 RMSE clipped, giving
+  +1.35 dB, not +10.6 dB. The preflight writedown carries a correction
+  note at its tail documenting this misattribution.
+- **Trainer val PSNR of 25.75 dB is not the headline.** It is the
+  center-crop patch-level number and is cited in this entry only for
+  space-reconciliation. The honest headline is the full-image test
+  number (21.22 dB).
+- **Training hyperparameters are as-shipped, not tuned.** LR 2e-4,
+  cosine schedule over 100 nominal epochs, early stop patience 10
+  (epochs, not steps), no warmup. These were inherited from the
+  denoising config without SR-specific tuning. The decision to not
+  retrain reflects asymmetric risk, not confidence that these choices
+  are optimal.
+
+**Reproducibility:** `modal run scripts/modal_sr_eval_swinir.py`
+reproduces all numbers in this entry (both splits, all metrics,
+matched bicubic baseline, per-FoV arrays) end-to-end. Raw JSON at
+`artifacts/sr_eval/w2s_swinir_sr_2x.json`. Training config at
+`configs/w2s_sr_swinir_2x.yaml`. Preflight artifact at
+`preflight/2026-04-12-sr-swinir-2x.txt`.
