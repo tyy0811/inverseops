@@ -460,21 +460,40 @@ class TestDay5Summary:
         for key in required_keys:
             assert key in summary, f"Missing key: {key}"
 
-    def test_default_run_name(self):
-        """Default run name should be swinir_fmd_denoise_sigma15_25_50_v1."""
-        import sys
+    def test_run_name_from_config_tracking(self, tmp_path):
+        """If config specifies tracking.run_name, that value is used (no V2 default)."""
+        import yaml
+
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        from run_training import load_config
 
-        import argparse
-
-        # Parse with no --run-name to verify default is applied via code path
-        # We just test the argparse default is None (actual default set in main())
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--run-name", type=str, default=None)
-        args = parser.parse_args([])
-        assert args.run_name is None
-        # The default "swinir_fmd_denoise_sigma15_25_50_v1" is applied in main()
-        # when args.run_name is None: run_name = args.run_name or "swinir_..."
+        config_path = tmp_path / "cfg.yaml"
+        config_path.write_text(
+            yaml.safe_dump(
+                {
+                    "task": "denoise",
+                    "data": {"dataset": "w2s", "train_root": "/tmp"},
+                    "model": {"name": "swinir"},
+                    "tracking": {"run_name": "my-v3-run"},
+                }
+            )
+        )
+        config = load_config(config_path)
+        assert config["tracking"]["run_name"] == "my-v3-run"
+        # No V2 fallback: if tracking.run_name is absent, the config carries None
+        # and main() is responsible for raising.
+        config_path2 = tmp_path / "cfg2.yaml"
+        config_path2.write_text(
+            yaml.safe_dump(
+                {
+                    "task": "denoise",
+                    "data": {"dataset": "w2s", "train_root": "/tmp"},
+                    "model": {"name": "swinir"},
+                }
+            )
+        )
+        config2 = load_config(config_path2)
+        assert config2["tracking"].get("run_name") is None
 
     def test_wandb_flag_precedence(self):
         """--wandb and --no-wandb should be mutually exclusive."""
@@ -486,6 +505,47 @@ class TestDay5Summary:
             capture_output=True, text=True,
         )
         assert result.returncode != 0
+
+
+def test_load_config_raises_on_missing_task(tmp_path):
+    """load_config must raise ValueError if task is not specified."""
+    import yaml
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from run_training import load_config
+
+    config_path = tmp_path / "minimal.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "data": {"dataset": "w2s", "train_root": "/tmp"},
+                "model": {"name": "swinir"},
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="task"):
+        load_config(config_path)
+
+
+def test_load_config_raises_on_missing_dataset(tmp_path):
+    """load_config must raise ValueError if data.dataset is not specified."""
+    import yaml
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    from run_training import load_config
+
+    config_path = tmp_path / "minimal.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "task": "denoise",
+                "data": {"train_root": "/tmp"},
+                "model": {"name": "swinir"},
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="data.dataset"):
+        load_config(config_path)
 
 
 class TestDenormalizedPSNR:
