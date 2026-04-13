@@ -81,14 +81,20 @@ All splits frozen in `inverseops/data/splits.json`.
 
 ## Inference API
 
-Production serving layer with three endpoints: `POST /restore`, `GET /health`, `GET /metrics`. The API is model-agnostic — it loads whichever checkpoint is configured and serves inference via FastAPI. The `noise_level` parameter uses sigma indexing from the V2 synthetic-noise pipeline; for W2S avg-level models, point the API at the appropriate checkpoint directly.
+Production serving layer. Four endpoints:
+
+- `POST /restore` — image denoising (W2S or IXI checkpoints, selected by the default in `CHECKPOINT_REGISTRY`)
+- `POST /super_resolve` — 2x super-resolution (W2S SwinIR SR checkpoint)
+- `GET /health` — service health check
+- `GET /metrics` — Prometheus-compatible metrics
+
+The API is model-agnostic: checkpoints are registered in `inverseops/serving/app.py:CHECKPOINT_REGISTRY`, and the lifespan loads them from `$CHECKPOINT_ROOT` (default `./checkpoints/`) at startup. The server fails to start if any registered checkpoint file is missing.
 
 **Restore an image:**
 
 ```bash
 curl -X POST http://localhost:8000/restore \
   -F "file=@noisy_image.png" \
-  -F "noise_level=25" \
   --output restored.png
 ```
 
@@ -98,19 +104,39 @@ The restored PNG is returned in the body. Structured QC metadata is in response 
 {
   "status": "completed",
   "decision": "good",
+  "task": "denoise",
   "metrics": {"inference_ms": 5106.0, "output_valid": true},
   "input_analysis": {
-    "noise_level_source": "user_supplied",
+    "noise_level_source": "estimated",
     "noise_level_sigma": 25.0,
     "in_calibrated_range": true
   },
-  "model_info": {"backend": "swinir_sigma25", "version": "0.1.0"}
+  "model_info": {"backend": "w2s_denoise_swinir", "version": "0.1.0"}
 }
 ```
 
-The `noise_level` parameter selects the checkpoint trained for that noise level. If omitted, the system estimates the noise via wavelet MAD and routes to the closest match. The `decision` field reports `good`, `review`, or `out_of_range` based on whether the input falls within the model's calibrated range.
+The `decision` field reports `good`, `review`, or `out_of_range` based on whether the input falls within the model's calibrated range (denoise only).
 
-**Note on V2/V3 vocabulary:** The serving layer was built for V2's synthetic-sigma models and retains that vocabulary in field names and checkpoint identifiers (`swinir_sigma25`). The V3 W2S models work through the same API but the sigma field names are vestigial — they identify which checkpoint is loaded, not a noise model. When serving W2S models, `noise_level_sigma` in the response is a legacy label and does not correspond to a Gaussian sigma; the model is trained on frame-averaging noise levels (avg1-avg16). A future cleanup would rename these fields, but this would require coordinated changes across the API schema, the QC layer, and any downstream consumers.
+**Super-resolve an image (2x):**
+
+```bash
+curl -X POST http://localhost:8000/super_resolve \
+  -F "file=@low_res.png" \
+  --output high_res.png
+```
+
+Returns a PNG with dimensions exactly 2x the input. Metadata in the response headers:
+
+- `X-Restore-Status: completed`
+- `X-Restore-Decision: good | review`
+- `X-Restore-Task: sr`
+- `X-Restore-Inference-Ms: <float>`
+
+Unlike `/restore`, the `/super_resolve` endpoint does not accept a `noise_level` form parameter. The SwinIR SR model was trained on clean LR input (W2S avg400 -> SIM); passing a noisy image may produce degraded output but will not fail. QC checks input validity and output finiteness only; there is no calibrated-noise-range concept for SR.
+
+**Note on V2/V3 vocabulary:** The serving layer was built for V2's synthetic-sigma models and retains that vocabulary in some field names (`noise_level_sigma`, `CALIBRATED_RANGE`). The V3 W2S models work through the same API but those field names are vestigial — they identify the calibrated-range concept from the synthetic pipeline, not a Gaussian sigma for the W2S frame-averaging noise levels (avg1–avg16). A future cleanup will rename the schema field, but this would require coordinated changes across the API schema, QC layer, and downstream consumers.
+
+The `noise_level` form parameter on `/restore` is deprecated in V3 and ignored at request time; passing it triggers a once-per-process warning via structlog. The parameter will be removed in V4. The `/super_resolve` endpoint does not accept this parameter.
 
 **Example: out-of-range input**
 
@@ -118,6 +144,7 @@ The `noise_level` parameter selects the checkpoint trained for that noise level.
 {
   "status": "completed",
   "decision": "out_of_range",
+  "task": "denoise",
   "metrics": {"inference_ms": 5230.0, "output_valid": true},
   "input_analysis": {
     "noise_level_source": "estimated",
@@ -125,7 +152,7 @@ The `noise_level` parameter selects the checkpoint trained for that noise level.
     "estimation_method": "wavelet_mad",
     "in_calibrated_range": false
   },
-  "model_info": {"backend": "swinir_sigma50", "version": "0.1.0"}
+  "model_info": {"backend": "w2s_denoise_swinir", "version": "0.1.0"}
 }
 ```
 
@@ -155,6 +182,8 @@ docker-compose up
 # Alternative: pull from GHCR
 docker pull ghcr.io/tyy0811/inverseops:latest
 ```
+
+The container expects checkpoint files under `/app/checkpoints/` (set via `CHECKPOINT_ROOT`). Bind-mount your local checkpoints directory into the container at startup, or bake the checkpoints into a custom image. The serving lifespan will fail loudly at startup if any file registered in `CHECKPOINT_REGISTRY` is missing.
 
 ### Monitoring
 
