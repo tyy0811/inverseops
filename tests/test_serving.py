@@ -63,25 +63,44 @@ def test_validate_output_inf():
     assert any("Inf" in i for i in issues)
 
 
-def test_decide_good():
+def test_decide_denoise_good():
     """In-range noise with valid output -> good."""
-    assert qc.decide(25.0, None, True) == "good"
+    assert qc.decide_denoise(25.0, None, True) == "good"
 
 
-def test_decide_out_of_range():
+def test_decide_denoise_out_of_range():
     """Noise outside calibrated range -> out_of_range."""
-    assert qc.decide(100.0, None, True) == "out_of_range"
+    assert qc.decide_denoise(100.0, None, True) == "out_of_range"
 
 
-def test_decide_review_on_invalid_output():
+def test_decide_denoise_review_on_invalid_output():
     """Invalid output -> review regardless of noise level."""
-    assert qc.decide(25.0, None, False) == "review"
+    assert qc.decide_denoise(25.0, None, False) == "review"
 
 
-def test_decide_uses_estimate_when_no_hint():
+def test_decide_denoise_uses_estimate_when_no_hint():
     """Falls back to estimated noise level when user doesn't provide one."""
-    assert qc.decide(None, 30.0, True) == "good"
-    assert qc.decide(None, 100.0, True) == "out_of_range"
+    assert qc.decide_denoise(None, 30.0, True) == "good"
+    assert qc.decide_denoise(None, 100.0, True) == "out_of_range"
+
+
+def test_decide_sr_good_on_valid_output():
+    """decide_sr returns 'good' when output is valid."""
+    assert qc.decide_sr(output_valid=True) == "good"
+
+
+def test_decide_sr_review_on_invalid_output():
+    """decide_sr returns 'review' when output is invalid."""
+    assert qc.decide_sr(output_valid=False) == "review"
+
+
+def test_decide_sr_has_no_calibrated_range_concept():
+    """decide_sr must not take noise_level parameters — SR has no sigma."""
+    import inspect
+
+    sig = inspect.signature(qc.decide_sr)
+    assert "noise_level" not in sig.parameters
+    assert "noise_level_estimated" not in sig.parameters
 
 
 # --- API integration tests (mocked models) ---
@@ -164,6 +183,17 @@ def test_restore_success(client):
     assert resp.headers["content-type"] == "image/png"
     assert "X-Restore-Decision" in resp.headers
     assert resp.headers["X-Restore-Status"] == "completed"
+
+
+def test_restore_response_task_field_defaults_to_denoise(client):
+    """POST /restore sets X-Restore-Task='denoise' on the response."""
+    png = _make_png_bytes()
+    resp = client.post(
+        "/restore",
+        files={"file": ("test.png", png, "image/png")},
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Restore-Task") == "denoise"
 
 
 def test_restore_without_noise_level(client):
@@ -265,6 +295,19 @@ def test_registry_has_default_denoise_model():
     for key in ("path", "task", "dataset", "build_config"):
         assert key in entry, f"registry entry missing required key: {key}"
     assert entry["task"] == "denoise"
+
+
+def test_registry_has_default_sr_model():
+    """Registry contains the default SR model with required keys."""
+    from inverseops.serving.app import (
+        CHECKPOINT_REGISTRY,
+        DEFAULT_SR_MODEL,
+    )
+
+    assert DEFAULT_SR_MODEL in CHECKPOINT_REGISTRY
+    entry = CHECKPOINT_REGISTRY[DEFAULT_SR_MODEL]
+    assert entry["task"] == "sr"
+    assert entry["build_config"]["model"]["scale"] == 2
 
 
 def test_lifespan_raises_on_missing_checkpoint(monkeypatch, tmp_path):
