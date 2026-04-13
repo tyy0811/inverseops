@@ -28,6 +28,10 @@ SwinIR shows a small consistent advantage over NAFNet (0.3-0.4 dB across all noi
 
 SwinIR-M fine-tuned from DIV2K classical-SR pretrain on W2S clean-LR super-resolution (avg400 as LR input, SIM as HR target). Evaluated on 13 held-out test FoVs x 3 wavelengths (n=39) through the same harness that anchored the [Decision 19 SR calibration](DECISIONS.md). Matched baseline is bicubic(avg400 → SIM) computed on the same samples.
 
+![W2S SR Comparison](figures/v3/w2s_sr_comparison.png)
+
+*W2S super-resolution comparison on test FoV 31, wavelength 0. Columns, left to right: clean LR input (avg400, 512x512), bicubic 2x upsample, SwinIR SR 2x (ours), SIM high-resolution ground truth (1024x1024). Top row: main 256x256 LR / 512x512 HR crop; per-image metrics shown in the bicubic and SwinIR panels. Bottom row: 64x64 LR / 128x128 HR detail crop showing fine structure at 4x greater zoom, where the SR-over-bicubic improvement is most visible. FoV 31 is a slightly-above-mean case (aggregate test delta +1.35 dB; FoV 31 wl 0 delta +2.23 dB) — not a cherry-pick of the best FoV, which was FoV 93 at +2.57 dB. Main crop picked by SIM target variance; detail crop picked by SIM target edge density (Sobel); neither selection depends on either model's output.*
+
 | | PSNR (dB) | SSIM | RMSE [0,1] |
 |---|---|---|---|
 | Bicubic(avg400 → SIM) baseline | 19.87 +/- 2.63 | 0.7826 +/- 0.0597 | 0.1151 +/- 0.0320 |
