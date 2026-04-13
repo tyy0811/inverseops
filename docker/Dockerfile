@@ -21,6 +21,8 @@ COPY configs/ configs/
 # Re-install with real code (deps already cached)
 RUN pip install --no-cache-dir --no-deps .
 
+ENV CHECKPOINT_ROOT=/app/checkpoints
+
 EXPOSE 8000
 
 CMD ["uvicorn", "inverseops.serving.app:app", "--host", "0.0.0.0", "--port", "8000"]
