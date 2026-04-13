@@ -32,3 +32,6 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# Git worktrees (isolated working copies)
+.worktrees/
