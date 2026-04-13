@@ -43,9 +43,21 @@ def set_seed(seed: int) -> None:
 
 
 def load_config(config_path: Path) -> dict:
-    """Load YAML config with defaults."""
+    """Load YAML config with defaults. Raises on missing required V3 keys."""
     with open(config_path) as f:
         config = yaml.safe_load(f)
+
+    if "task" not in config:
+        raise ValueError(
+            f"Config file {config_path} is missing required key 'task'. "
+            f"V3 configs must specify task explicitly ('denoise' or 'sr')."
+        )
+    data_cfg = config.get("data", {})
+    if "dataset" not in data_cfg:
+        raise ValueError(
+            f"Config file {config_path} is missing required key 'data.dataset'. "
+            f"V3 configs must specify the dataset name explicitly ('w2s' or 'ixi')."
+        )
 
     # Apply defaults
     config.setdefault("seed", 42)
@@ -53,15 +65,10 @@ def load_config(config_path: Path) -> dict:
     config["data"].setdefault("batch_size", 4)
     config["data"].setdefault("num_workers", 0)
     config["data"].setdefault("patch_size", 128)
-    config["data"].setdefault("sigmas", [15, 25, 50])
-    config["data"].setdefault("noise_source", "synthetic")
-
-    config.setdefault("task", "denoise")
 
     config.setdefault("model", {})
     config["model"].setdefault("name", "swinir")
     config["model"].setdefault("pretrained", True)
-    config["model"].setdefault("noise_level", 25)
 
     config.setdefault("training", {})
     config["training"].setdefault("epochs", 100)
@@ -191,8 +198,8 @@ def main() -> int:
         type=str,
         default=None,
         help=(
-            "Run name for W&B and metadata"
-            " (default: swinir_fmd_denoise_sigma15_25_50_v1)"
+            "Run name for W&B and metadata "
+            "(default: config.tracking.run_name if set, else error)"
         ),
     )
     checkpoint_group = parser.add_mutually_exclusive_group()
@@ -264,12 +271,14 @@ def main() -> int:
     elif args.no_wandb:
         config["tracking"]["enabled"] = False
 
-    # Run name: CLI > config > default
-    run_name = (
-        args.run_name
-        or config["tracking"].get("run_name")
-        or "swinir_fmd_denoise_sigma15_25_50_v1"
-    )
+    # Run name: CLI > config (required — no V2 default fallback)
+    run_name = args.run_name or config["tracking"].get("run_name")
+    if not run_name:
+        print(
+            "Error: run name must be provided via --run-name or "
+            "tracking.run_name in the config file."
+        )
+        return 1
     if args.epochs is not None:
         config["training"]["epochs"] = args.epochs
         config["scheduler"]["t_max"] = args.epochs
