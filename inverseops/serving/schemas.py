@@ -1,7 +1,9 @@
 """Pydantic schemas for the serving API.
 
-Defines request/response contracts for the /restore endpoint.
+Defines request/response contracts for the /restore and /super_resolve endpoints.
 """
+
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -43,7 +45,7 @@ class ModelInfo(BaseModel):
 
 
 class RestoreResponse(BaseModel):
-    """Response metadata for the /restore endpoint.
+    """Response metadata for the /restore and /super_resolve endpoints.
 
     Returned as JSON alongside the restored image file.
     """
@@ -53,6 +55,9 @@ class RestoreResponse(BaseModel):
 
     decision: str = "good"
     """Quality decision: 'good', 'review', or 'out_of_range'."""
+
+    task: Literal["denoise", "sr"] = "denoise"
+    """Task that was performed. 'denoise' for /restore, 'sr' for /super_resolve."""
 
     metrics: Metrics
     """Inference performance."""

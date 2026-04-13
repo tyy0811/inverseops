@@ -2,6 +2,7 @@
 
 Endpoints:
     POST /restore        — Denoise an uploaded image (V3 checkpoint registry)
+    POST /super_resolve  — 2x super-resolve an uploaded image
     GET  /health         — Service health check
     GET  /metrics        — Prometheus-compatible metrics
 """
@@ -23,7 +24,8 @@ from prometheus_client import CollectorRegistry, Counter, Histogram, generate_la
 
 from inverseops.serving.qc import (
     CALIBRATED_RANGE,
-    decide,
+    decide_denoise,
+    decide_sr,
     estimate_noise_level,
     validate_input,
     validate_output,
@@ -57,8 +59,19 @@ CHECKPOINT_REGISTRY: dict[str, dict] = {
             "data": {"dataset": "w2s"},
         },
     },
+    "w2s_sr_swinir_2x": {
+        "path": "w2s_sr_swinir_2x.pt",
+        "task": "sr",
+        "dataset": "w2s",
+        "build_config": {
+            "model": {"name": "swinir", "pretrained": False, "scale": 2},
+            "task": "sr",
+            "data": {"dataset": "w2s", "scale": 2},
+        },
+    },
 }
 DEFAULT_DENOISE_MODEL = "w2s_denoise_swinir"
+DEFAULT_SR_MODEL = "w2s_sr_swinir_2x"
 
 # Deprecation shim: first call that passes the legacy `noise_level` form
 # param logs a warning. The warning fires once per process, not per request.
@@ -304,7 +317,7 @@ def _register_routes(application: FastAPI) -> None:
         ).astype(np.uint8)
         result_image = Image.fromarray(output_clipped, mode="L")
 
-        decision = decide(
+        decision = decide_denoise(
             noise_level, noise_level_estimated, output_valid
         )
         QC_DECISION.labels(decision=decision).inc()
@@ -334,9 +347,128 @@ def _register_routes(application: FastAPI) -> None:
             headers={
                 "X-Restore-Status": meta.status,
                 "X-Restore-Decision": meta.decision,
+                "X-Restore-Task": meta.task,
                 "X-Restore-Inference-Ms": str(
                     meta.metrics.inference_ms
                 ),
+                "X-Restore-Metadata": meta.model_dump_json(),
+            },
+        )
+
+    @application.post("/super_resolve")
+    async def super_resolve(
+        request: Request,
+        file: UploadFile = File(...),
+    ) -> Response:
+        """Super-resolve an uploaded image (2x).
+
+        Routes to the default SR model in CHECKPOINT_REGISTRY. The model
+        was trained on clean LR input (W2S avg400 -> SIM); passing a noisy
+        image may produce degraded output but will not fail.
+
+        QC: No noise-level calibration (model trained on clean LR). QC
+        checks input validity and output finiteness only. Resolution
+        bounds 8x8-2048x2048 match the shared validate_input path used
+        by /restore.
+        """
+        RESTORE_REQUESTS.inc()
+
+        try:
+            contents = await _read_upload(file)
+        except HTTPException:
+            RESTORE_FAILED.inc()
+            raise
+        except Exception:
+            RESTORE_FAILED.inc()
+            raise HTTPException(
+                status_code=400, detail="Could not read upload"
+            )
+
+        try:
+            image = Image.open(io.BytesIO(contents))
+            image.load()
+        except Exception:
+            RESTORE_FAILED.inc()
+            raise HTTPException(
+                status_code=400, detail="Could not decode image file"
+            )
+
+        issues = validate_input(image)
+        if issues:
+            RESTORE_FAILED.inc()
+            raise HTTPException(
+                status_code=422, detail={"issues": issues}
+            )
+
+        models = getattr(request.app.state, "models", None)
+        if not models or DEFAULT_SR_MODEL not in models:
+            RESTORE_FAILED.inc()
+            raise HTTPException(
+                status_code=503,
+                detail=f"Default SR model '{DEFAULT_SR_MODEL}' not loaded",
+            )
+        model = models[DEFAULT_SR_MODEL]
+
+        lr_image = image.convert("L") if image.mode != "L" else image
+        lr_arr = np.array(lr_image, dtype=np.float32) / 255.0
+
+        from inverseops.data.w2s import W2S_MEAN, W2S_STD
+
+        lr_z = (lr_arr * 255.0 - W2S_MEAN) / W2S_STD
+
+        from inverseops.evaluation.stitching import sliding_window_sr
+
+        start = time.perf_counter()
+        try:
+            sr_z = sliding_window_sr(model, lr_z, device="cpu", clamp=False)
+        except Exception as e:
+            RESTORE_FAILED.inc()
+            raise HTTPException(
+                status_code=500, detail=f"SR inference failed: {e}"
+            )
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        RESTORE_LATENCY.observe(elapsed_ms / 1000)
+
+        output_valid, output_issues = validate_output(sr_z)
+        issues.extend(output_issues)
+        decision = decide_sr(output_valid)
+        QC_DECISION.labels(decision=decision).inc()
+        RESTORE_COMPLETED.inc()
+
+        sr_denorm = sr_z * W2S_STD + W2S_MEAN
+        sr_uint8 = np.clip(sr_denorm, 0, 255).astype(np.uint8)
+        out_image = Image.fromarray(sr_uint8, mode="L")
+
+        meta = RestoreResponse(
+            status="completed",
+            decision=decision,
+            task="sr",
+            metrics=Metrics(
+                inference_ms=round(elapsed_ms, 1),
+                output_valid=output_valid,
+            ),
+            input_analysis=InputAnalysis(
+                noise_level_source="estimated",
+                noise_level_sigma=None,
+                estimation_method=None,
+                in_calibrated_range=True,
+            ),
+            issues=issues,
+            model_info=ModelInfo(backend=DEFAULT_SR_MODEL),
+        )
+
+        buf = io.BytesIO()
+        out_image.save(buf, format="PNG")
+        buf.seek(0)
+
+        return Response(
+            content=buf.getvalue(),
+            media_type="image/png",
+            headers={
+                "X-Restore-Status": meta.status,
+                "X-Restore-Decision": meta.decision,
+                "X-Restore-Task": meta.task,
+                "X-Restore-Inference-Ms": str(meta.metrics.inference_ms),
                 "X-Restore-Metadata": meta.model_dump_json(),
             },
         )

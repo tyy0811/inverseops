@@ -72,14 +72,15 @@ def estimate_noise_level(image: Image.Image) -> float:
     return float(sigma_normalized * 255.0)
 
 
-def decide(
+def decide_denoise(
     noise_level: float | None,
     noise_level_estimated: float | None,
     output_valid: bool,
 ) -> str:
-    """Return QC decision: 'good', 'review', or 'out_of_range'.
+    """Denoise-task QC decision: 'good', 'review', or 'out_of_range'.
 
-    Uses provided noise_level if available, otherwise falls back to estimate.
+    Uses CALIBRATED_RANGE sigma check. Uses provided noise_level if
+    available, otherwise falls back to the estimate.
     """
     if not output_valid:
         return "review"
@@ -91,4 +92,17 @@ def decide(
     if sigma < CALIBRATED_RANGE[0] or sigma > CALIBRATED_RANGE[1]:
         return "out_of_range"
 
+    return "good"
+
+
+def decide_sr(output_valid: bool) -> str:
+    """Super-resolution QC decision.
+
+    SR has no noise-level calibration (model trained on clean LR), so QC
+    checks input validity and output finiteness only. Input resolution
+    bounds (8x8–2048x2048) are enforced by the shared validate_input
+    path before this function runs.
+    """
+    if not output_valid:
+        return "review"
     return "good"
