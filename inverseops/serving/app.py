@@ -1,18 +1,21 @@
 """FastAPI application for image restoration inference.
 
 Endpoints:
-    POST /restore  — Denoise an uploaded image
-    GET  /health   — Service health check
-    GET  /metrics  — Prometheus-compatible metrics
+    POST /restore        — Denoise an uploaded image (V3 checkpoint registry)
+    GET  /health         — Service health check
+    GET  /metrics        — Prometheus-compatible metrics
 """
 
 from __future__ import annotations
 
 import io
+import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import numpy as np
+import torch
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from PIL import Image
@@ -36,9 +39,30 @@ from inverseops.serving.schemas import (
 # Limits
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
-# Supported sigma levels (matching pretrained checkpoints)
-SUPPORTED_SIGMAS = (15, 25, 50)
-DEFAULT_SIGMA = 25
+# Checkpoint registry — keyed by logical model name, resolved relative to
+# CHECKPOINT_ROOT. Each entry carries the task, dataset, and build config
+# needed to reconstruct the model at startup. Entries MUST match the V3
+# training-config shape so build_model() succeeds without re-downloading
+# DIV2K pretrained weights. See docs/plans/2026-04-13-v3-serving-layer-migration.md.
+CHECKPOINT_ROOT = Path(os.environ.get("CHECKPOINT_ROOT", "./checkpoints"))
+
+CHECKPOINT_REGISTRY: dict[str, dict] = {
+    "w2s_denoise_swinir": {
+        "path": "w2s_denoise_swinir.pt",
+        "task": "denoise",
+        "dataset": "w2s",
+        "build_config": {
+            "model": {"name": "swinir", "pretrained": False},
+            "task": "denoise",
+            "data": {"dataset": "w2s"},
+        },
+    },
+}
+DEFAULT_DENOISE_MODEL = "w2s_denoise_swinir"
+
+# Deprecation shim: first call that passes the legacy `noise_level` form
+# param logs a warning. The warning fires once per process, not per request.
+_noise_level_deprecation_warned = False
 
 # Prometheus metrics
 _registry = CollectorRegistry()
@@ -66,24 +90,31 @@ QC_DECISION = Counter(
 
 
 def _select_model(request: Request, noise_level: float | None):
-    """Select the model checkpoint closest to the requested sigma."""
+    """Select the default denoise model from the registry.
+
+    The `noise_level` param is vestigial in V3 (see Decision 20 / README).
+    First use per process logs a deprecation warning via structlog.
+    """
+    global _noise_level_deprecation_warned
+    if noise_level is not None and not _noise_level_deprecation_warned:
+        import structlog
+
+        structlog.get_logger().warning(
+            "noise_level_param_deprecated",
+            message=(
+                "The `noise_level` form parameter on /restore is deprecated "
+                "in V3 and ignored at request time. It will be removed in V4."
+            ),
+        )
+        _noise_level_deprecation_warned = True
+
     models = getattr(request.app.state, "models", None)
-    if not models:
-        raise HTTPException(status_code=503, detail="Models not loaded")
-
-    if noise_level is not None:
-        sigma = min(
-            models.keys(), key=lambda s: abs(s - noise_level)
-        )
-    else:
-        sigma = DEFAULT_SIGMA
-
-    model = models[sigma]
-    if not model.is_loaded():
+    if not models or DEFAULT_DENOISE_MODEL not in models:
         raise HTTPException(
-            status_code=503, detail=f"Model sigma={sigma} not loaded"
+            status_code=503,
+            detail=f"Default denoise model '{DEFAULT_DENOISE_MODEL}' not loaded",
         )
-    return model, sigma
+    return models[DEFAULT_DENOISE_MODEL], DEFAULT_DENOISE_MODEL
 
 
 async def _read_upload(file: UploadFile) -> bytes:
@@ -125,23 +156,29 @@ def create_app(models=None) -> FastAPI:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            from inverseops.models.swinir import SwinIRBaseline
+            from inverseops.models import build_model
 
-            loaded = {}
-            for sigma in SUPPORTED_SIGMAS:
-                m = SwinIRBaseline(
-                    noise_level=sigma,  # type: ignore[arg-type]
-                    device="cpu",
-                )
-                m.load()
-                loaded[sigma] = m
+            loaded: dict[str, object] = {}
+            for logical_name, entry in CHECKPOINT_REGISTRY.items():
+                full_path = CHECKPOINT_ROOT / entry["path"]
+                if not full_path.is_file():
+                    raise RuntimeError(
+                        f"Registered checkpoint not found: {full_path}. "
+                        f"Set CHECKPOINT_ROOT or place the checkpoint file at "
+                        f"the expected path before starting the server."
+                    )
+                model = build_model(entry["build_config"], device="cpu")
+                ckpt = torch.load(full_path, map_location="cpu", weights_only=False)
+                model.load_state_dict(ckpt["model_state_dict"], strict=True)
+                model.eval()
+                loaded[logical_name] = model
             app.state.models = loaded
             yield
             app.state.models = None
 
         application = FastAPI(
             title="InverseOps",
-            description="Microscopy image denoising API",
+            description="Microscopy image restoration API (V3)",
             version="0.1.0",
             lifespan=lifespan,
         )
@@ -164,10 +201,11 @@ def _register_routes(application: FastAPI) -> None:
         file: UploadFile = File(...),
         noise_level: float | None = Form(default=None),
     ) -> Response:
-        """Denoise an uploaded image.
+        """Denoise an uploaded image using the default denoise model.
 
-        The noise_level parameter selects the checkpoint trained for
-        that sigma. If omitted, defaults to sigma=25.
+        The noise_level form parameter is vestigial in V3 and ignored
+        at request time; first use per process logs a deprecation
+        warning. It will be removed in V4.
         """
         RESTORE_REQUESTS.inc()
 
@@ -201,10 +239,8 @@ def _register_routes(application: FastAPI) -> None:
                 status_code=422, detail={"issues": issues}
             )
 
-        # Select model based on noise_level
-        model, selected_sigma = _select_model(
-            request, noise_level
-        )
+        # Select default denoise model (noise_level is vestigial in V3)
+        model, logical_name = _select_model(request, noise_level)
 
         # Noise level analysis
         noise_level_estimated = None
@@ -284,7 +320,7 @@ def _register_routes(application: FastAPI) -> None:
             input_analysis=input_analysis,
             issues=issues,
             model_info=ModelInfo(
-                backend=f"swinir_sigma{selected_sigma}",
+                backend=logical_name,
             ),
         )
 
@@ -308,9 +344,7 @@ def _register_routes(application: FastAPI) -> None:
     @application.get("/health", response_model=HealthResponse)
     async def health(request: Request) -> HealthResponse:
         models = getattr(request.app.state, "models", None)
-        loaded = models is not None and all(
-            m.is_loaded() for m in models.values()
-        )
+        loaded = models is not None and DEFAULT_DENOISE_MODEL in models
         return HealthResponse(
             status="healthy" if loaded else "unhealthy",
             model_loaded=loaded,

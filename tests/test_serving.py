@@ -120,10 +120,8 @@ def _mock_model(raw_output=None):
 
 
 def _mock_models(raw_output=None):
-    """Create a dict of mocked models for all 3 sigma levels."""
-    return {
-        sigma: _mock_model(raw_output) for sigma in (15, 25, 50)
-    }
+    """Create a dict of mocked models keyed by logical registry name."""
+    return {"w2s_denoise_swinir": _mock_model(raw_output)}
 
 
 @pytest.fixture
@@ -169,7 +167,7 @@ def test_restore_success(client):
 
 
 def test_restore_without_noise_level(client):
-    """POST /restore works without noise_level (defaults to sigma=25)."""
+    """POST /restore works without noise_level (uses default denoise model)."""
     png = _make_png_bytes()
     resp = client.post(
         "/restore",
@@ -206,55 +204,15 @@ def test_restore_inference_failure():
     from inverseops.serving.app import create_app
 
     models = _mock_models()
-    models[25].predict_raw.side_effect = RuntimeError("CUDA OOM")
+    models["w2s_denoise_swinir"].predict_raw.side_effect = RuntimeError("CUDA OOM")
     test_app = create_app(models=models)
     with TestClient(test_app) as c:
         png = _make_png_bytes()
         resp = c.post(
             "/restore",
             files={"file": ("test.png", png, "image/png")},
-            data={"noise_level": "25"},
         )
     assert resp.status_code == 500
-
-
-def test_restore_dispatches_to_correct_sigma():
-    """POST /restore with noise_level=50 uses the sigma=50 model."""
-    from fastapi.testclient import TestClient
-
-    from inverseops.serving.app import create_app
-
-    models = _mock_models()
-    test_app = create_app(models=models)
-    with TestClient(test_app) as c:
-        png = _make_png_bytes()
-        c.post(
-            "/restore",
-            files={"file": ("test.png", png, "image/png")},
-            data={"noise_level": "50"},
-        )
-    # sigma=50 model should have been called, not sigma=25
-    models[50].predict_raw.assert_called_once()
-    models[25].predict_raw.assert_not_called()
-    models[15].predict_raw.assert_not_called()
-
-
-def test_restore_dispatches_nearest_sigma():
-    """noise_level=40 snaps to sigma=50 (nearest checkpoint)."""
-    from fastapi.testclient import TestClient
-
-    from inverseops.serving.app import create_app
-
-    models = _mock_models()
-    test_app = create_app(models=models)
-    with TestClient(test_app) as c:
-        png = _make_png_bytes()
-        c.post(
-            "/restore",
-            files={"file": ("test.png", png, "image/png")},
-            data={"noise_level": "40"},
-        )
-    models[50].predict_raw.assert_called_once()
 
 
 def test_restore_rejects_oversized_upload():
@@ -293,6 +251,44 @@ def test_restore_detects_nan_in_raw_output():
         )
     assert resp.status_code == 200
     assert resp.headers["X-Restore-Decision"] == "review"
+
+
+def test_registry_has_default_denoise_model():
+    """Registry contains the default denoise model with required keys."""
+    from inverseops.serving.app import (
+        CHECKPOINT_REGISTRY,
+        DEFAULT_DENOISE_MODEL,
+    )
+
+    assert DEFAULT_DENOISE_MODEL in CHECKPOINT_REGISTRY
+    entry = CHECKPOINT_REGISTRY[DEFAULT_DENOISE_MODEL]
+    for key in ("path", "task", "dataset", "build_config"):
+        assert key in entry, f"registry entry missing required key: {key}"
+    assert entry["task"] == "denoise"
+
+
+def test_lifespan_raises_on_missing_checkpoint(monkeypatch, tmp_path):
+    """Lifespan must raise RuntimeError with the missing file path in the message."""
+    from fastapi.testclient import TestClient
+
+    import inverseops.serving.app as app_module
+
+    monkeypatch.setattr(app_module, "CHECKPOINT_ROOT", tmp_path)
+    bogus_registry = {
+        "bogus_model": {
+            "path": "this_file_does_not_exist.pt",
+            "task": "denoise",
+            "dataset": "w2s",
+            "build_config": {},
+        }
+    }
+    monkeypatch.setattr(app_module, "CHECKPOINT_REGISTRY", bogus_registry)
+    monkeypatch.setattr(app_module, "DEFAULT_DENOISE_MODEL", "bogus_model")
+
+    test_app = app_module.create_app()  # no models= kwarg; hits the lifespan path
+    with pytest.raises(RuntimeError, match="this_file_does_not_exist.pt"):
+        with TestClient(test_app):
+            pass
 
 
 def test_estimate_noise_level_returns_positive():
